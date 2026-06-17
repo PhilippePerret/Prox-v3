@@ -1,0 +1,25 @@
+/*** EXPECTATIONS: {
+  "test-title": "Calcul correct du nombre de pages (même quand inachevée)",
+  "total_pages": 3,
+  "canons": {
+    "aujourd'hui": {"count": 222},
+    "être": {"count": 222}
+  }
+    } ***/
+aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 
+ aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est aujourd'hui est 

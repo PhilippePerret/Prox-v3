@@ -1,0 +1,9 @@
+# spaCy + modèle français
+spacy>=3.0
+
+# sqlite3 est inclus dans la stdlib Python — rien à installer
+
+# Installer un modèle spaCy français (choisir selon la RAM disponible) :
+#   python -m spacy download fr_core_news_sm   # ~12 Mo, moins précis
+#   python -m spacy download fr_core_news_md   # ~43 Mo, bon compromis
+#   python -m spacy download fr_core_news_lg   # ~560 Mo, meilleur

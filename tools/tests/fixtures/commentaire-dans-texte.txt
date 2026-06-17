@@ -1,0 +1,3 @@
+/*** Le mot "obscur" apparaît avant et après ce commentaire. Le commentaire ne doit pas être compté comme texte. ***/
+Un homme obscur vivait là./*** ce commentaire est au milieu ***/ Un autre homme obscur passa.
+/*** EXPECTECTATIONS: {"test-title": "Ne pas compter le commentaire"} ***/

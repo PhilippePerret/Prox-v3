@@ -1,0 +1,2 @@
+/*** Deux occurrences de "marcher" très proches (~15 caractères). Doit produire min_dist < 50 pour le canon "marcher". ***/
+Il marchait. Il marche encore.

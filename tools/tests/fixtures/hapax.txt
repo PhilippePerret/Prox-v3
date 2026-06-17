@@ -1,0 +1,2 @@
+/*** Chaque mot n'apparaît qu'une seule fois. Aucun canon ne doit avoir count > 1. ***/
+Le renard agile bondit par-dessus un chien paresseux.

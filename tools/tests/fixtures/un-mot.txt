@@ -1,0 +1,2 @@
+/*** EXPECTECTATIONS: {"total_words": 1, "total_canons": 1} ***/
+Bonjour.
