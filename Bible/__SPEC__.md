@@ -14,6 +14,7 @@ Cette application doit permettre de :
 | Terme                                                      | Signification                                                | Contexte |
 | ---------------------------------------------------------- | ------------------------------------------------------------ | -------- |
 | **Distance**                                               | Éloignement, en nombre de caractères et nombre de mots, entre deux termes (souvent de même canon). |          |
+| **seuil de proximité**                                     | Limite à partir de laquelle deux mots vont être considérés trop proches. Le seuil de proximité de deux mots, par défaut, est à 1500. Il peut être ajusté. |          |
 | <span style="white-space:nowrap;">**de même canon**</span> | Se dit de **deux termes ayant la même forme canonique**. « fait » et « faisant » sont deux termes *de même canon*. |          |
 | **Proximité**                                              | Distance entre deux mots de même canon. Elle s’exprime en nombre de caractères et en nombre de mots. Aspect *neutre* de la distance entre deux mots/expressions. On parle de ***trop grande proximité*** pour parler de rapprochement trop grand entre deux termes. | Tous     |
 | **Répétition**                                             | Aspect négatif de la *proximité*. Elle peut être *simple* ou *double* (répétition avant et après). |          |

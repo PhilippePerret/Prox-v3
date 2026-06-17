@@ -1,0 +1,13 @@
+"""Préférences d'affichage et seuils."""
+
+FONT_FAMILY     = "Georgia"
+FONT_SIZE_PT    = 24
+LINE_HEIGHT_PCT = 280
+BADGE_FONT_PT   = 13
+MARGIN_PX       = 60
+PAGE_GUTTER     = 40
+DEBOUNCE_MS     = 800
+
+SEUIL_DEFAUT = 1500
+SEUIL_ROUGE  = 200
+SEUIL_ORANGE = 600
