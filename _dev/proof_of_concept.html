@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Proof of concept — double page + badges</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #ccc; display: flex; flex-direction: column;
+       height: 100vh; font-family: Georgia, serif; }
+#pages { display: flex; gap: 40px; padding: 24px; flex: 1; min-height: 0; }
+.page {
+  flex: 1; background: white; padding: 48px 60px;
+  font-size: 24px; line-height: 2.8;
+  text-align: justify;
+  overflow: hidden;
+  position: relative;
+  outline: none;
+}
+/* Badges positionnés en absolu par JS */
+.badge {
+  position: absolute;
+  font-size: 13px; font-family: Georgia, serif;
+  padding: 1px 6px; border-radius: 2px;
+  pointer-events: none;
+  border: 1px solid;
+  color: #111;
+  white-space: nowrap;
+}
+#footer { background: #d8d8d8; border-top: 1px solid #bbb;
+          padding: 10px 20px; text-align: center; font-size: 13px;
+          font-family: Georgia; color: #555; }
+</style>
+</head>
+<body>
+
+<div id="pages">
+  <div id="pg" class="page" contenteditable="true"></div>
+  <div id="pd" class="page" contenteditable="true"></div>
+</div>
+<div id="footer">Preuve : position exacte des badges sous les mots en texte justifié</div>
+
+<script>
+const TEXT = "8 mai. - Quelle journée admirable ! J'ai passé toute la matinée étendu sur l'herbe, devant ma maison, sous l'immense platane qui la couvre, l'abrite et l'ombre toute entière. J'aime ce pays et j'aime y vivre parce que j'y ai mes racines, ces profondes et délicates racines, qui attachent un homme à la terre où sont nés et morts ses aïeux, qui l'attachent à ce qu'on pense et à ce qu'on mange, aux usages comme aux nourritures, aux locutions locales, aux intonations des paysans, aux odeurs du sol, des villages et de l'air lui-même. J'aime ma maison où j'ai grandi. Je vois de mes fenêtres la Seine qui coule, le long de mon jardin, derrière la route, presque chez moi, la grande et large Seine, qui va de Rouen au Havre, couverte de bateaux qui passent.";
+
+const WORDS = TEXT.match(/\S+\s*/g);
+const PG = document.getElementById('pg');
+const PD = document.getElementById('pd');
+const FOOTER = document.getElementById('footer');
+
+// Remplissage : PG jusqu'au débordement, PD le reste
+function fillEditors() {
+  PG.innerHTML = ''; PD.innerHTML = '';
+  // Cherche le point de coupure (PG plein)
+  let lo = 0, hi = WORDS.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    PG.textContent = WORDS.slice(0, mid).join('');
+    if (PG.scrollHeight > PG.clientHeight) hi = mid - 1;
+    else lo = mid;
+  }
+  const split = lo;
+  PG.textContent = WORDS.slice(0, split).join('');
+
+  // PD : pareil depuis split
+  let lo2 = 0, hi2 = WORDS.length - split;
+  while (lo2 < hi2) {
+    const mid = (lo2 + hi2 + 1) >> 1;
+    PD.textContent = WORDS.slice(split, split + mid).join('');
+    if (PD.scrollHeight > PD.clientHeight) hi2 = mid - 1;
+    else lo2 = mid;
+  }
+  PD.textContent = WORDS.slice(split, split + lo2).join('');
+
+  FOOTER.textContent =
+    `PG : ${split} mots  |  PD : ${lo2} mots  |  Buffer : ${WORDS.length - split - lo2} mots restants`;
+}
+
+// Badges de démonstration : marque "racines" (deux occurrences)
+function placeBadges() {
+  // Enlever anciens badges
+  document.querySelectorAll('.badge').forEach(b => b.remove());
+
+  // Trouver "racines" dans PG
+  markWordInEditor(PG, 'racines', '←245', '#006600');  // premier occurrence, après
+  markWordInEditor(PG, 'maison', '302→', '#cc3300');   // exemple rouge
+}
+
+function markWordInEditor(editor, word, label, color) {
+  const text = editor.textContent;
+  const idx  = text.indexOf(word);
+  if (idx < 0) return;
+
+  // Obtenir le rect pixel du mot via Range
+  const range = document.createRange();
+  const textNode = editor.firstChild;
+  if (!textNode) return;
+  range.setStart(textNode, idx);
+  range.setEnd(textNode, idx + word.length);
+  const rect      = range.getBoundingClientRect();
+  const editorRect = editor.getBoundingClientRect();
+
+  // Badge positionné relativement à l'éditeur
+  const badge = document.createElement('div');
+  badge.className = 'badge';
+  badge.textContent = label;
+  badge.style.left   = (rect.left - editorRect.left) + 'px';
+  badge.style.top    = (rect.bottom - editorRect.top + 4) + 'px';
+  badge.style.background = color + '33';  // couleur + alpha
+  badge.style.borderColor = color;
+  editor.appendChild(badge);
+}
+
+fillEditors();
+setTimeout(placeBadges, 50);
+window.addEventListener('resize', () => { fillEditors(); setTimeout(placeBadges, 50); });
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+Cette note concerne : Item, Lister, Project, ListerProject, Event, ListerEvent, Brin, ListerBrin, Perso, ListerPerso (et tous ceux qui suivront)
+avant d'implémenter une fonctionnalité quelle qu'elle soit concernant les éléments (Item) et les listes (Lister), se demander profondément 
+
+1) qui doit être responsable de ça ? (un déplacement dans une liste relève de la liste, pas de l'élément)
+Pour s'aider, on peut se dire "Qui est changé après l'opération". Exemple, la création d'un élément : La liste est changé, pas l'élément puisqu'il n'existait pas avant. Un déplacement dans une liste : la liste est changé, pas l'élément, qui reste lui-même, etc. Ça ne fonctionnera peut-être pas à tous les coups, mais commencer par là.
+
+2) est-ce un comportement PROPRE à la classe particulière, ou est-ce un comportement appartenant à TOUTES les classes ?
+3) Si ce comportement est partagé, fonctionne-t-il grossièrement de la même manière. Si oui => Lister ou Item

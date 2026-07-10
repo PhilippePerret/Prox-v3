@@ -1,8 +1,10 @@
 #!/bin/bash
 cd "$(dirname "$0")"
-source /Users/philippeperret/Programmes/PROXIMITY/venv/bin/activate
-python app/main.py 2>&1 | tee /tmp/prox_error.log
-echo ""
-echo "——— Prox s'est terminé ——— log : /tmp/prox_error.log ———"
-echo "Appuyer sur Entrée pour fermer"
-read
+python3.11 -m app.prox_pywebview 2>&1 | tee /tmp/prox2_error.log
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo ""
+    echo "——— ERREUR — log : /tmp/prox2_error.log ———"
+    read
+else
+    exit 0
+fi

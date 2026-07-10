@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS texts (
     id           INTEGER PRIMARY KEY,
     author       TEXT    NOT NULL,
     title        TEXT    NOT NULL,
-    year         INTEGER NOT NULL,
+    year         TEXT    NOT NULL,
     lang         TEXT    NOT NULL,
     source       TEXT,
     analyzed_at  TEXT,
@@ -311,7 +311,7 @@ def main():
     ap.add_argument('source',            help='Fichier .txt à analyser')
     ap.add_argument('--author', '-a',    required=True, help='Nom de l\'auteur')
     ap.add_argument('--title',  '-t',    required=True, help='Titre exact de l\'œuvre')
-    ap.add_argument('--year',   '-y',    required=True, type=int, help='Année de publication')
+    ap.add_argument('--year',   '-y',    required=True, help='Année de publication')
     ap.add_argument('--lang',   '-l',    required=True, help='Langue originale (fr, en, ru…)')
     ap.add_argument('--db',     '-d',    default=None,
                     help='Base SQLite cible (défaut : déduit de titre_auteur_année.db)')

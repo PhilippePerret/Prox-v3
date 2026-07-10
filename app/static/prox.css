@@ -1,0 +1,195 @@
+/* Proximity — styles UI */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #c8c8c8;
+  font-family: Georgia, serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* ── Layout principal ──────────────────────────────────────────── */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#pages {
+  display: flex;
+  gap: 40px;
+  padding: 24px 24px 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Pages (éditeurs) ─────────────────────────────────────────── */
+
+.page-wrap {
+  flex: 1;
+  min-height: 0;        /* empêche le flex item de dépasser son parent */
+  background: white;
+  overflow: hidden;
+  position: relative;   /* ancre les badges en position:absolute */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fix critique : sans flex+min-height ici, isOverflowing() ne détecte rien.
+   #editor-pg est flex-child de .page-wrap et flex-parent de .ProseMirror. */
+#editor-pg, #editor-pd {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 20;
+}
+
+.ProseMirror {
+  flex: 1;
+  min-height: 0;
+  padding: 48px 60px;
+  font-size: 24px;
+  line-height: 2.2;
+  text-align: justify;
+  text-align-last: justify;
+  color: #1a1a1a;
+  outline: none;
+  overflow: hidden;
+  caret-color: transparent;
+}
+
+/* ── Mots annotés (Decoration.inline ProseMirror) ────────────── */
+
+.prox-word {
+}
+
+/* Exergue : hover sur le mot OU curseur dans le mot */
+.prox-word.active {
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--badge-rgb), 0.85);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  background: rgba(var(--badge-rgb), 0.28);
+  text-shadow: 0 0 1px rgba(var(--badge-rgb), 1),
+               0 0 3px rgba(var(--badge-rgb), 0.6);
+}
+
+/* ── Badges ───────────────────────────────────────────────────── */
+
+/* Positionnés en absolute dans .page-wrap via coordsAtPos() en JS */
+.prox-badge {
+  position: absolute;
+  font-size: 13px;
+  font-family: Georgia, serif;
+  padding: 1px 5px;
+  border: 1px solid rgba(var(--badge-rgb), 0.65);
+  border-radius: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+  cursor: default;
+  z-index: 10;
+  background: rgba(var(--badge-rgb), 0.15);
+  color: rgba(var(--badge-rgb), 0.9);
+  transition: background 0.1s, color 0.1s;
+}
+
+/* Badge actif : survol ou appairé */
+.prox-badge.active {
+  background: rgba(var(--badge-rgb), 0.88);
+  border-color: rgba(var(--badge-rgb), 0.88);
+  color: white;
+}
+
+/* ── Footer ───────────────────────────────────────────────────── */
+
+#footer {
+  background: #d8d8d8;
+  border-top: 1px solid #bbb;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 20px;
+  flex-shrink: 0;
+}
+
+#pageline {
+  width: calc(100% - 40px);
+  height: 8px;
+  background: #b4b4b4;
+  border-radius: 4px;
+  position: relative;
+  cursor: pointer;
+}
+#pageline-cursor {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: #3a3a3a;
+  border-radius: 4px;
+  min-width: 6px;
+  pointer-events: none;
+}
+
+#footer-stats {
+  font-size: 13px;
+  color: #333;
+}
+
+#footer-nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-size: 12px;
+  color: #777;
+}
+
+.nav-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #444;
+  cursor: pointer;
+  padding: 0 8px;
+  line-height: 1;
+}
+.nav-btn:hover   { color: #000; }
+.nav-btn:disabled { color: #bbb; cursor: default; }
+
+/* ── Faux curseur (hauteur = police, pas ligne) ───────────────── */
+
+#fake-cursor {
+  position: absolute;
+  width: 2px;
+  background: #2244cc;
+  pointer-events: none;
+  z-index: 25;
+  display: none;
+  animation: cursor-blink 1s step-end infinite;
+}
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}
+
+/* ── Splash ───────────────────────────────────────────────────── */
+
+#splash {
+  position: fixed; inset: 0;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 999;
+}
+#splash h1 { font-size: 48px; color: #1a1a1a; }
+#splash p  { font-size: 16px; color: #888; }
+#splash.hidden { display: none; }

@@ -1,0 +1,27 @@
+CLAUDE NE DOIT PAS LIRE CE FICHIER
+
+BUG non donné encore à Claude
+
+BUG Exergue NE DOIT PAS commencer quand le curseur est à une espace du texte. ELLE DOIT commencer quand le curseur est contre ou dans le mot.
+BUG impossible de poursuivre une sélection d'une Page à l'autre, que ce soit avec le curseur (MAJ + déplacement du curseur) ou avec la souris (click dans PG puis click dans PD, devrait sélectionner tout le texte entre les deux clicks )
+
+
+*1 Fonctionnement possible pour le placement des mots/badges, mais franchement, j'aurais préféré que tu trouves mieux (je ne sais même pas si c'est possible, je ne connais pas ta technologie). Ce que je ferais moi en HTML/CSS/JS
+Imaginons un mot assez court avec proximité avant et après : "car il est parfois" — c'est le "est" qui est placé à 200px de la marge gauche
+ESP (espace) = 12px (à ajuster, je ne sais pas combien ça fait, mais peu importe)
+1) calcul de largeur de mot au pixel près (imaginons 22px)
+2) calcul de la largeur du badge G vers mot avant ("115" => 32px)
+3) calcul de la largeur du badge vers mot après ("1236" => 45px)
+4) je tiens compte de gouttière de 10 px minimum entre 2 badges => le badge de gauche avoir son bord DROIT à <offset mot> + (22/2 - 10/2) = 200 + (11 - 5) = 206 — Donc son bord GAUCHE à 206 - 
+4) milieu mot : 22 / 2 = 11 -- par rapport à bord G : 200 + 11 = 211 
+    10px de gouttière 
+    => bord D de badge G à 211 - 10/2 = 206
+    => bord G de badge D à 211 + 10/2 = 216
+    Badge G de 32px => bord G à 206 - 32  = 174 
+    Bord D de Mot précédent ("il") doit être à 174 - ESP = 174 - 12 = 162px
+    Placement mot précédent = son bord D - sa largeur (vérifier s'il ne remonte pas ou ne passe pas à la page précédente)
+    Badge D de 45xp => bord D à 216 + 45 = 261px
+    => Placement de mot suivant "parfois" = 261 + ESP = 273px
+    (vérifier qu'il ne passe pas à la ligne suivant ou à la page suivant)
+    
+    BIEN SÛR, il faut tenir compte du fait que le mot avant/après peut LUI AUSSI avoir des badges qui peuvent dépasser de lui, et en tenir compte.

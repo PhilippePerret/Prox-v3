@@ -1,0 +1,18 @@
+RAPPORT D'ESSAI EN LIVE
+- Le titre : Affreux, les mots se chevauchent, "Proximity" commence hors du cadre à gauche
+- contenu PG bizarre : beaucoup de scroll en bas… Des étiquettes perdues toutes seules
+- passe de curseur PG -> PD : NÉANT
+- passage de mot PD -> PG quand PG diminue : OK
+- passage de mot PG -> PD quand PG augmente : OK
+- justification dernière ligne PG : NÉANT
+- justification dernière ligne PD : NÉANT
+- exergue quand survol proximité souris : NON
+- exergue quand cursor dans mot : NON
+- exergue "de page à page" : 
+- chevauchement de badge : OUI
+- Couleur verte : à voir quand exergues marcheront
+- Couleur rouge : à voir quand exergue marcheront à nouveau
+- Couleur orange : NON (ocre)
+- Page suivante : OK
+- Page précédente : OK (revient bien au début de la première)
+- taille curseur : toujours trop haut

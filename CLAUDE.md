@@ -1,4 +1,5 @@
-## OBLIGATOIRE — lire avant toute réponse
+## OBLIGATOIRE — lire avant toute réponse, dans cet ordre
 
-Lire intégralement `./Bible/__SPEC__.md`. Sans exception.
-Lire ensuite `./dev/Claude/01-fondations.md` (stack, architecture, décisions session 2026-06-16).
+1. **`./dev/Claude/04-nouvelle-direction-2026-06-18.md`** — LIRE EN PREMIER. Direction technique actuelle, état du travail, prochaines étapes. Ce fichier dit exactement où on en est et quoi faire.
+2. `./Bible/__SPEC__.md` — spec fonctionnelle complète.
+3. `./app/engine.py` — ProxEngine (ne pas modifier).

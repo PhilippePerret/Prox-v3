@@ -14,8 +14,12 @@ Pour lancer l’analyse d’un texte :
   python3 text_analyzer.py -t "TITRE" -y ANNEEE -a "AUTEUR" -l 'fr' FICHIER.txt
   
   # Exemple à remplir et copier-coller
+  TITRE='Daphnis et Chloé'
+  AUTEUR='Longus'
+  ANNEE='250ajc'
+  ROOT="Longus-Daphnis_et_Chloe"
   
-  python3 text_analyzer.py -t 'Bel Ami' -y 1891 -a 'Guy de Maupassant' -l 'fr' textes/Guy_de_Maupassant-Bel_Ami.txt
+  python3 text_analyzer.py -t "$TITRE" -y $ANNEE -a "$AUTEUR" -l 'fr' textes/$ROOT.txt
   ~~~
-
+  
   > Toutes les informations sont requises.
