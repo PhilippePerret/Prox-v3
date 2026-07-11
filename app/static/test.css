@@ -1,0 +1,60 @@
+* , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #c8c8c8;
+  font-family: Georgia, serif;
+  overflow: hidden;
+}
+
+#page {
+  position: relative;
+  background: white;
+  margin: 24px;
+  padding: 48px 60px;
+  font-size: 24px;
+  line-height: 2.2;
+  text-align: justify;
+  color: #1a1a1a;
+  user-select: none;
+  cursor: text;
+  outline: none;
+}
+
+.word { }
+.para { }
+
+#text { position: relative; z-index: 1; }
+
+#sel-layer { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.sel-box {
+  position: absolute;
+  background: #bcd6fb;
+}
+
+#hidden-input {
+  position: fixed;
+  left: -2000px;
+  top: -2000px;
+}
+
+#fake-cursor {
+  position: absolute;
+  width: 2px;
+  background: #2244cc;
+  display: none;
+  z-index: 2;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 0%, 84% { opacity: 1; } 85%, 100% { opacity: 0; } }
+
+#info {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: #222;
+  color: #eee;
+  font-family: Menlo, monospace;
+  font-size: 13px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+}

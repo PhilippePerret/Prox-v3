@@ -97,11 +97,6 @@ class ProxAPI:
             for r in reps
         ]
 
-    # ── DEBUG : log clic depuis JS, écrit dans un fichier, rien à l'écran ─────
-    def debug_log(self, msg: str) -> None:
-        with open('/tmp/prox_click_debug.log', 'a', encoding='utf-8') as f:
-            f.write(msg + '\n')
-
 
 def main():
     api    = ProxAPI()
@@ -118,6 +113,10 @@ def main():
     def on_loaded():
         import threading
         _set_titlebar(window.native, False)
+        try:
+            window.native.setAcceptsMouseMovedEvents_(True)
+        except Exception:
+            pass
         threading.Thread(target=api._load_model, daemon=True).start()
 
     window.events.loaded += on_loaded

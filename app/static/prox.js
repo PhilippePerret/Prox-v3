@@ -42,6 +42,15 @@ let viewPD = null;
 let _navHistory = [0];
 let _navIdx     = 0;
 
+// Plages des mots répétés (pour survol/curseur) — plus de repère posé dans le texte,
+// juste from/to en positions ProseMirror, comparées à la position de la souris/du curseur.
+let _repRangesPG = [];
+let _repRangesPD = [];
+
+function findRepAt(ranges, pos) {
+  return ranges.find(r => pos >= r.from && pos <= r.to) || null;
+}
+
 // ── Couleur badge/mot : gradient 3 points vert→orange→rouge ──────────────
 function repColor(distance, seuil) {
   const ratio = Math.max(0, Math.min(1, 1 - distance / seuil));
@@ -96,23 +105,23 @@ function activateGroup(idx) {
           .forEach(el => el.classList.add('active'));
 }
 function deactivateAll() {
-  document.querySelectorAll('.prox-badge.active, .prox-word.active')
+  document.querySelectorAll('.prox-badge.active')
           .forEach(el => el.classList.remove('active'));
   _activeRepIdx = null;
 }
 
-// Appelé quand le curseur bouge — cherche si on est dans un mot annoté
-function updateCursorHighlight(view, decoKey) {
-  const { from }  = view.state.selection;
-  const decoSet   = decoKey.getState(view.state);
-  if (!decoSet) { deactivateAll(); return; }
-  const found = decoSet.find(from - 1, from + 1);
-  const idx   = found.length ? found[0].spec.repIdx : null;
-  if (idx !== _activeRepIdx) {
-    deactivateAll();
-    _activeRepIdx = idx;
-    if (idx !== null) activateGroup(idx);
-  }
+function setActiveIdx(idx) {
+  if (idx === _activeRepIdx) return;
+  deactivateAll();
+  if (idx !== null) { _activeRepIdx = idx; activateGroup(idx); }
+}
+
+// Appelé quand le curseur bouge — cherche si on est dans un mot répété
+function updateCursorHighlight(view) {
+  const ranges = (view === viewPG) ? _repRangesPG : _repRangesPD;
+  const { from } = view.state.selection;
+  const found = findRepAt(ranges, from);
+  setActiveIdx(found ? found.repIdx : null);
 }
 
 // ── Flag reflow : empêche onEdit() pendant setText() internes ────────────
@@ -138,7 +147,7 @@ function createView(domNode, decoKey, onEdit) {
       view.updateState(newState);
       if (tr.docChanged && !_inReflow) onEdit();
       if (!selBefore.eq(newState.selection) && !_inReflow) {
-        updateCursorHighlight(view, decoKey);
+        updateCursorHighlight(view);
         updateFakeCursor();
       }
     },
@@ -272,77 +281,142 @@ function clearBadges() {
 }
 
 function clearWordDecos() {
+  _repRangesPG.length = 0;
+  _repRangesPD.length = 0;
   if (viewPG) viewPG.dispatch(viewPG.state.tr.setMeta(decoKeyPG, DecorationSet.empty));
   if (viewPD) viewPD.dispatch(viewPD.state.tr.setMeta(decoKeyPD, DecorationSet.empty));
+  deactivateAll();
+}
+
+const LINE_H = 2.2 * 24;
+const GUTTER = 10;   // gouttière min entre deux badges du même mot
+
+// Mesure les rectangles écran de chaque mot répété via un Range DOM (dimensions réelles du
+// texte affiché, comme l'ancien repère posé sur le mot — mais sans y toucher : un Range ne
+// modifie rien dans le document, juste une lecture). Retourne un tableau aligné sur `ranges`
+// (même longueur, `null` pour une plage qui n'a pas pu être mesurée).
+function measureRepRects(view, ranges) {
+  return ranges.map(r => {
+    let rect;
+    try {
+      const startDOM = view.domAtPos(r.from);
+      const endDOM   = view.domAtPos(r.to);
+      const range = document.createRange();
+      range.setStart(startDOM.node, startDOM.offset);
+      range.setEnd(endDOM.node, endDOM.offset);
+      rect = range.getBoundingClientRect();
+    } catch (e) { return null; }
+    if (!rect || (!rect.width && !rect.height)) return null;
+    const wr = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    wr.width  = wr.right - wr.left;
+    wr.height = wr.bottom - wr.top;
+    return wr;
+  });
+}
+
+// Détecte les badges voisins qui se toucheraient sur une même ligne, à partir de largeurs
+// RÉELLES (mesurées sur les badges déjà créés) — pas d'estimation. Retourne l'ensemble des
+// index (dans `ranges`) à forcer de l'autre côté de la ligne pour ne pas se toucher.
+function computeFlips(ranges, rects, widths) {
+  const items = ranges
+    .map((r, i) => (rects[i] ? { r, wr: rects[i], w: widths[i], i } : null))
+    .filter(Boolean);
+
+  const lines = [];
+  items.forEach(it => {
+    let line = lines.find(l => Math.abs(l.top - it.wr.top) < 4);
+    if (!line) { line = { top: it.wr.top, items: [] }; lines.push(line); }
+    line.items.push(it);
+  });
+  lines.forEach(l => l.items.sort((a, b) => a.wr.left - b.wr.left));
+
+  const flips = new Set();
+  lines.forEach(line => {
+    for (let i = 0; i < line.items.length - 1; i++) {
+      const a = line.items[i], b = line.items[i + 1];
+      if (a.r.from === b.r.from) continue;  // même mot (badge avant + badge après) — pas deux mots voisins
+      const aRight = a.r.dir === 'après' ? a.wr.right + GUTTER / 2 + a.w : a.wr.right;
+      const bLeft  = b.r.dir === 'avant' ? b.wr.left  - GUTTER / 2 - b.w : b.wr.left;
+      if (aRight - bLeft > 0) flips.add(b.i);  // le second des deux passe de l'autre côté de la ligne
+    }
+  });
+  return flips;
 }
 
 // Badges — plus aucune décoration posée sur le mot lui-même (bloquait le clic).
-// Position calculée via coordsAtPos() (API ProseMirror), sans passer par un span dans le texte.
+// Position calculée via un Range DOM, sans passer par un repère dans le texte.
+// Quand deux badges voisins se toucheraient (largeurs réelles), l'un des deux est basculé
+// de l'autre côté de la ligne (au-dessus au lieu d'en dessous) — le texte n'est jamais touché.
 function applyWordDecosAndBadges(view, decoKey, repList) {
-  const wrap = view.dom.closest('.page-wrap');
+  const wrap   = view.dom.closest('.page-wrap');
+  const ranges = (view === viewPG) ? _repRangesPG : _repRangesPD;
+  ranges.length = 0;
+  repList.forEach(({ offset, forme, dir, distance, repIdx }) => {
+    const from = offset + 1;
+    const to   = from + forme.length;
+    if (to > view.state.doc.content.size) return;
+    ranges.push({ from, to, repIdx, dir, distance });
+  });
+
   wrap.querySelectorAll('.prox-badge').forEach(b => b.remove());
 
   requestAnimationFrame(() => {
-    const created = [];
-    repList.forEach(({ offset, forme, dir, distance, repIdx }) => {
-      const from = offset + 1;
-      const to   = from + forme.length;
-      if (to > view.state.doc.content.size) return;
-      let c1, c2;
-      try { c1 = view.coordsAtPos(from); c2 = view.coordsAtPos(to); } catch (e) { return; }
-      const wr = {
-        left:   Math.min(c1.left, c2.left),
-        right:  Math.max(c1.right, c2.right),
-        top:    Math.min(c1.top, c2.top),
-        bottom: Math.max(c1.bottom, c2.bottom),
-      };
-      wr.width  = wr.right - wr.left;
-      wr.height = wr.bottom - wr.top;
-
-      const label = dir === 'avant' ? `←${distance}` : `${distance}→`;
-      const [r, g, b] = repColor(distance, _seuil);
+    const badges = ranges.map(r => {
+      const label = r.dir === 'avant' ? `←${r.distance}` : `${r.distance}→`;
+      const [red, g, b] = repColor(r.distance, _seuil);
       const badge = document.createElement('span');
-      badge.className      = 'prox-badge';
-      badge.dataset.repIdx = String(repIdx);
-      badge.dataset.dir    = dir;
-      badge.style.setProperty('--badge-rgb', `${r},${g},${b}`);
-      badge.textContent    = label;
-      badge.style.left     = '0';
-      badge.style.top      = '0';
+      badge.className        = 'prox-badge';
+      badge.dataset.repIdx   = String(r.repIdx);
+      badge.dataset.dir      = r.dir;
+      badge.style.setProperty('--badge-rgb', `${red},${g},${b}`);
+      badge.textContent      = label;
+      badge.style.left       = '0';
+      badge.style.top        = '0';
       badge.style.visibility = 'hidden';
       wrap.appendChild(badge);
-      created.push({ badge, wr, dir });
+      return badge;
     });
 
-    // rAF2 : badges en DOM → largeurs disponibles — on calcule les positions finales
     requestAnimationFrame(() => {
-      const fr     = wrap.getBoundingClientRect();
-      const GUTTER = 10;   // gouttière min entre deux badges du même mot
-      const LINE_H = 2.2 * 24;
-
-      const posGroups = [];
-      created.forEach(({ badge, wr, dir }) => {
-        const center = wr.left + wr.width / 2;
-        let group = posGroups.find(g => Math.abs(g.center - center) < 4);
-        if (!group) { group = { center, wr, left: [], right: [] }; posGroups.push(group); }
-        (dir === 'avant' ? group.left : group.right).push(badge);
-      });
-
-      posGroups.forEach(({ center, wr, left, right }) => {
-        const place = (badge, leftPx) => {
-          const { height: bh } = badge.getBoundingClientRect();
-          const topY = wr.bottom + (LINE_H - wr.height) / 2 - bh / 2;
-          let t = topY;
-          if (t + bh > fr.bottom - 2) { t = wr.top - (LINE_H - wr.height) / 2 - bh - 4; badge.classList.add('flip'); }
-          badge.style.left = (leftPx - fr.left) + 'px';
-          badge.style.top  = (t - fr.top) + 'px';
-          badge.style.visibility = '';
-        };
-
-        if (left[0]) place(left[0], center - GUTTER / 2 - left[0].getBoundingClientRect().width);
-        if (right[0]) place(right[0], center + GUTTER / 2);
-      });
+      const widths = badges.map(b => b.getBoundingClientRect().width);
+      const rects  = measureRepRects(view, ranges);
+      const flips  = computeFlips(ranges, rects, widths);
+      placeBadges(wrap, ranges, rects, badges, flips);
     });
+  });
+}
+
+// Positionne les badges déjà créés, à partir des rectangles mesurés (alignés sur `ranges`).
+function placeBadges(wrap, ranges, rects, badges, flips) {
+  const fr = wrap.getBoundingClientRect();
+
+  const posGroups = [];
+  badges.forEach((badge, i) => {
+    const wr = rects[i];
+    if (!wr) { badge.remove(); return; }
+    const center = wr.left + wr.width / 2;
+    let group = posGroups.find(g => Math.abs(g.center - center) < 4);
+    if (!group) { group = { center, wr, left: [], right: [] }; posGroups.push(group); }
+    const entry = { badge, forceFlip: flips.has(i) };
+    (ranges[i].dir === 'avant' ? group.left : group.right).push(entry);
+  });
+
+  posGroups.forEach(({ center, wr, left, right }) => {
+    const place = (badge, leftPx, forceFlip) => {
+      const { height: bh } = badge.getBoundingClientRect();
+      const topY = wr.bottom + (LINE_H - wr.height) / 2 - bh / 2;
+      let t = topY;
+      if (forceFlip || t + bh > fr.bottom - 2) {
+        t = wr.top - (LINE_H - wr.height) / 2 - bh - 4;
+        badge.classList.add('flip');
+      }
+      badge.style.left = (leftPx - fr.left) + 'px';
+      badge.style.top  = (t - fr.top) + 'px';
+      badge.style.visibility = '';
+    };
+
+    if (left[0]) place(left[0].badge, center - GUTTER / 2 - left[0].badge.getBoundingClientRect().width, left[0].forceFlip);
+    if (right[0]) place(right[0].badge, center + GUTTER / 2, right[0].forceFlip);
   });
 }
 
@@ -540,40 +614,27 @@ function init(data) {
   scheduleAnalysis();
 }
 
-// ── Hover sur mot annoté (badges pointer-events:none, ne reçoivent pas d'events) ──
-document.addEventListener('mouseover', e => {
-  const target = e.target.closest('.prox-word');
-  if (!target) return;
-  const idx = target.dataset.repIdx;
-  deactivateAll();
-  _activeRepIdx = idx;
-  activateGroup(idx);
-});
-document.addEventListener('mouseout', e => {
-  const target = e.target.closest('.prox-word');
-  if (!target) return;
-  const related = e.relatedTarget && e.relatedTarget.closest('.prox-word');
-  if (related && related.dataset.repIdx === target.dataset.repIdx) return;
-  deactivateAll();
-});
-
 window.proxJS = { init, updateBadges };
 
-// ── DEBUG curseur ─────────────────────────────────────────────────────────
-function dbg(msg) {
-  const el = document.getElementById('footer-info');
-  if (el) el.textContent = msg;
-}
+// ── Survol d'un badge → exergue (mouseover/mouseout, pas mousemove) ───────
+document.addEventListener('mouseover', e => {
+  const target = e.target.closest('.prox-badge');
+  if (!target) return;
+  setActiveIdx(Number(target.dataset.repIdx));
+});
+document.addEventListener('mouseout', e => {
+  const target = e.target.closest('.prox-badge');
+  if (!target) return;
+  const related = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.prox-badge');
+  if (related && related.dataset.repIdx === target.dataset.repIdx) return;
+  const focusedView = (document.activeElement === viewPG?.dom) ? viewPG
+                     : (document.activeElement === viewPD?.dom) ? viewPD
+                     : null;
+  if (focusedView) updateCursorHighlight(focusedView);
+  else setActiveIdx(null);
+});
 
 // ── Démarrage ─────────────────────────────────────────────────────────────
-document.addEventListener('mousedown', e => {
-  const under = document.elementFromPoint(e.clientX, e.clientY);
-  const utag  = under ? under.tagName : '—';
-  const ucls  = under ? (under.className || '—') : '—';
-  const msg   = `CAPTURE x=${e.clientX} y=${e.clientY} cible=${utag}.${ucls}`;
-  if (window.pywebview && window.pywebview.api) window.pywebview.api.debug_log(msg);
-}, true);
-
 window.addEventListener('DOMContentLoaded', () => {
   const onEdit = () => {
     scheduleReflow();
@@ -584,22 +645,6 @@ window.addEventListener('DOMContentLoaded', () => {
   viewPG = createView(document.getElementById('editor-pg'), decoKeyPG, onEdit);
   viewPD = createView(document.getElementById('editor-pd'), decoKeyPD, onEdit);
 
-  // DEBUG : log clic dans footer-info
-  [viewPG, viewPD].forEach((v, i) => {
-    const side = i === 0 ? 'PG' : 'PD';
-    v.dom.addEventListener('mousedown', e => {
-      const tag = e.target.tagName;
-      const cls = e.target.className || '—';
-      const ri  = e.target.dataset ? (e.target.dataset.repIdx || '—') : '—';
-      const pos = v.posAtCoords({ left: e.clientX, top: e.clientY });
-      const under = document.elementFromPoint(e.clientX, e.clientY);
-      const utag  = under ? under.tagName : '—';
-      const ucls  = under ? (under.className || '—') : '—';
-      const msg = `BUBBLE ${side} tag=${tag} class=${cls} repIdx=${ri} posAtCoords=${JSON.stringify(pos)} sous-la-souris=${utag}.${ucls}`;
-      dbg(msg);
-      if (window.pywebview && window.pywebview.api) window.pywebview.api.debug_log(msg);
-    });
-  });
 
   // Faux curseur : show/hide au focus/blur
   [viewPG, viewPD].forEach(v => {
