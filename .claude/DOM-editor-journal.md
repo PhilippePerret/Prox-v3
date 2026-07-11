@@ -101,6 +101,27 @@
   d'atteindre l'appli, vérifié par log vide). Entrée supprime maintenant l'espace en fin de
   paragraphe précédent si elle existe.
 
+- Priorité basculée vers l'affichage/comportement des badges (proximités) — algo de placement dans
+  `_dev/Bible/adocs/badges.adoc`. Étape 1 (sur 6, découpage validé par l'utilisateur) : badge sous
+  un mot, centré, avec un nombre dedans — sans encore GAP/2-badges/anti-chevauchement/espacement
+  custom/couleur. Détection de répétition faite en JS local, minimale, juste pour avoir des mots
+  répétés à tester (sera remplacée par l'analyse Python réelle).
+  Étapes suivantes (déjà actées) : 2. deux badges (avant+après) avec GAP, 3. mot de 2 lettres avec
+  un seul badge, 4. espacement mot à mot calculé à la main (abandon du `justify` natif) pour que
+  personne ne passe au-dessus d'un badge qui ne lui appartient pas, 5. anti-chevauchement entre
+  badges voisins, 6. couleur (dégradé vert/orange/rouge).
+
+  Étape 2 confirmée par l'utilisateur (badge avant/après avec GAP, actualisation en direct).
+  Étape 3 : règle abandonnée par l'utilisateur (retirée de `badges.adoc`, "les mots de deux lettres
+  subissent le même traitement") — code retiré, sans objet.
+  Étape 4 (en cours) : justification calculée à la main faite (espaces en `<span class="space">`,
+  largeur distribuée par ligne, dernière ligne de paragraphe non-justifiée). PAS ENCORE fait : la
+  partie "aucun mot au-dessus d'un badge qui ne lui appartient pas" — liée à l'anti-chevauchement de
+  l'étape 5, pas encore implémentée. Changement de structure DOM associé : les espaces ne sont plus
+  des noeuds texte nus mais des `<span>`, `charIndexToDom`/`domToCharIndex` mis à jour en
+  conséquence — à surveiller si un comportement déjà validé (clic, sélection, flèches) se
+  dérègle.
+
 ## Pour plus tard
 
 - "↑"/"↓" ne fait rien : pas de cas `ArrowUp`/`ArrowDown` dans le handler `keydown` de `test.js` —

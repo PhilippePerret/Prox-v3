@@ -13,8 +13,7 @@ html, body {
   margin: 24px;
   padding: 48px 60px;
   font-size: 24px;
-  line-height: 2.2;
-  text-align: justify;
+  line-height: 3;
   color: #1a1a1a;
   user-select: none;
   cursor: text;
@@ -30,6 +29,19 @@ html, body {
 .sel-box {
   position: absolute;
   background: #bcd6fb;
+}
+
+#badge-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.badge {
+  position: absolute;
+  font-size: 12px;
+  font-family: Menlo, monospace;
+  padding: 0 3px;
+  border: 1px solid #4a90d9;
+  border-radius: 2px;
+  background: rgba(74, 144, 217, 0.15);
+  color: #2244cc;
+  white-space: nowrap;
 }
 
 #hidden-input {

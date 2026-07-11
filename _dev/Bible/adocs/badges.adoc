@@ -49,4 +49,4 @@ Ensuite, les mots autour doivent être placés tout simplement pour que :
         120
 ====
 
-- mot de deux lettres avec UN badge : badge placé sous la letre (1re si pair avant, 2e si pair après)
+Les mots de deux lettres subissent le même traitement.

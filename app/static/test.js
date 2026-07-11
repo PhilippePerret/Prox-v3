@@ -32,17 +32,14 @@ function scheduleHiddenInputClear() {
 // d'un texte source (fullText) qu'on édite comme une chaîne de caractères normale — un retour à
 // la ligne est juste le caractère "\n" dans ce texte, comme n'importe quel autre caractère.
 
-let fullText = "Ceci est un petit texte de test pour vérifier le placement exact du curseur. "
-             + "Il faut cliquer un peu partout, au tout début du texte, au milieu d'un mot, "
-             + "juste après un mot, entre deux mots, et à la toute fin du texte. "
-             + "Cette troisième phrase sert surtout à avoir une deuxième ligne visible pour "
-             + "le triple-clic et pour vérifier que tout fonctionne aussi sur plusieurs lignes.";
+let fullText = "Ceci est un texte !";
 
 const pageEl    = document.getElementById('page');
 const textEl    = document.getElementById('text');
 const cursorEl  = document.getElementById('fake-cursor');
 const infoEl    = document.getElementById('info');
 const selLayer  = document.getElementById('sel-layer');
+const badgeLayer = document.getElementById('badge-layer');
 
 // ── segments : la liste, dans l'ordre, de chaque unité du DOM (mot, espace, ou retour à la
 // ligne) avec sa plage [start, end) dans fullText — traduit un index de caractère en (noeud,
@@ -50,10 +47,15 @@ const selLayer  = document.getElementById('sel-layer');
 // rien de mesurable à son propre emplacement (pas de glyphe) — voir rectForIndex.
 let segments = [];
 
+let wordPositionsInfo = '';
+
 function rebuildDOM() {
   textEl.innerHTML = '';
+  badgeLayer.innerHTML = '';
   segments = [];
+  wordPositionsInfo = '';
   let pos = 0;
+  let tokenIdx = 0;
   const paragraphs = fullText.split('\n');
   paragraphs.forEach((paraText, pi) => {
     const paraEl = document.createElement('div');
@@ -61,18 +63,66 @@ function rebuildDOM() {
     textEl.appendChild(paraEl);
 
     const words = paraText.split(' ');
+    var badgeX = 0;
     words.forEach((w, i) => {
-      // un paragraphe qui finit par un espace produit un dernier élément vide dans le split :
-      // ce n'est pas un mot, juste l'espace déjà couvert par le segment précédent — ne pas créer
-      // de span/segment vide pour lui (sinon aucun noeud texte à mesurer à cette position).
-      const isTrailingEmpty = w === '' && i === words.length - 1 && i > 0;
-      if (!isTrailingEmpty) {
+      // un paragraphe qui finit ou commence par un espace produit un élément vide en bout de
+      // split : ce n'est pas un mot, juste un espace déjà couvert par un autre segment — ne pas
+      // créer de span/segment vide pour lui (sinon aucun noeud texte à mesurer à cette position).
+      const isEmptyBoundary = w === '' && (i === 0 || i === words.length - 1) && words.length > 1;
+      if (!isEmptyBoundary) {
+        const start = pos;
         const span = document.createElement('span');
         span.className = 'word';
         span.textContent = w;
         paraEl.appendChild(span);
-        segments.push({ node: span, start: pos, end: pos + w.length, isWord: true });
+
+        const pageRect = pageEl.getBoundingClientRect();
+        let r = span.getBoundingClientRect();
+        const naturalX = r.left - pageRect.left;
+        const naturalWidth = r.width;
+        const actualX = Math.max(naturalX, badgeX);
+        const GAP = measureGap();
+        const token = TOKENS[tokenIdx++];
+
+        let wordX = actualX;
+        let bgText = '';
+        if (token.before !== null) {
+          const badge = document.createElement('div');
+          badge.className = 'badge';
+          badge.textContent = token.before;
+          badgeLayer.appendChild(badge);
+          const bw = badge.getBoundingClientRect().width;
+          badge.style.left = actualX + 'px';
+          badge.style.top  = (r.top - pageRect.top + r.height + 2) + 'px';
+          const mid = actualX + bw + GAP / 4;
+          wordX = Math.max(naturalX, mid - naturalWidth / 2);
+          bgText = `BG ${Math.round(actualX)} `;
+        }
+
+        span.style.marginLeft = (wordX - naturalX) + 'px';
+        r = span.getBoundingClientRect();
+
+        segments.push({ node: span, start, end: start + w.length, isWord: true });
         pos += w.length;
+
+        wordPositionsInfo += `${w} ${Math.round(r.left - pageRect.left)}/${Math.round(r.width)} `;
+        wordPositionsInfo += bgText;
+
+        const centerX = r.left + r.width / 2 - pageRect.left;
+        const top = r.bottom - pageRect.top + 2;
+
+        if (token.after !== null) {
+          const badge = document.createElement('div');
+          badge.className = 'badge';
+          badge.textContent = token.after;
+          badge.style.left = (centerX + GAP / 4) + 'px';
+          badge.style.top  = top + 'px';
+          badgeLayer.appendChild(badge);
+          const br = badge.getBoundingClientRect();
+          const bd = Math.round(br.right - pageRect.left);
+          wordPositionsInfo += `BD ${bd} `;
+          badgeX = bd + GAP;
+        }
       }
       if (i < words.length - 1) {
         const spaceNode = document.createTextNode(' ');
@@ -85,6 +135,73 @@ function rebuildDOM() {
     if (pi < paragraphs.length - 1) {
       segments.push({ node: paraEl, start: pos, end: pos + 1, isWord: false, isBreak: true });
       pos += 1;
+    }
+  });
+}
+
+// Test badges : un élément par mot du texte, dans l'ordre. Remplacera l'analyse Python réelle.
+const TOKENS = [
+  { i: 0, forme: 'Ceci',  canon: 'ceci',  offset: 0,  before: null, after: null },
+  { i: 1, forme: 'est',   canon: 'être',  offset: 5,  before: null, after: 1200 },
+  { i: 2, forme: 'un',    canon: 'un',    offset: 9,  before: 1012, after: 1299 },
+  { i: 3, forme: 'texte', canon: 'texte', offset: 12, before: 1111, after: null },
+  { i: 4, forme: '!',     canon: '!',     offset: 18, before: null, after: null },
+];
+
+function computeBadges() {
+  const byStart = new Map(); // offset du mot -> { canon, before, after }
+  TEST_PAIRS.forEach(({ canon, offset_a, offset_b, distance }) => {
+    const a = byStart.get(offset_a) || { canon };
+    a.after = distance;
+    byStart.set(offset_a, a);
+    const b = byStart.get(offset_b) || { canon };
+    b.before = distance;
+    byStart.set(offset_b, b);
+  });
+  const result = [];
+  wordSegments().forEach(w => {
+    const entry = byStart.get(w.start);
+    if (!entry) return;
+    result.push({ word: w, canon: entry.canon, before: entry.before ?? null, after: entry.after ?? null });
+  });
+  return result;
+}
+
+// GAP (badges.adoc) : largeur d'un "e" dans la police courante, mesurée via canvas.
+function measureGap() {
+  const sample = document.querySelector('.word');
+  if (!sample) return 6;
+  const style = getComputedStyle(sample);
+  const canvas = measureGap._canvas || (measureGap._canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  return ctx.measureText('e').width;
+}
+
+function renderBadges() {
+  badgeLayer.innerHTML = '';
+  const pageRect = pageEl.getBoundingClientRect();
+  const gap = measureGap();
+  computeBadges().forEach(({ word, before, after }) => {
+    const r = word.node.getBoundingClientRect();
+    const top = r.bottom - pageRect.top + 2;
+    const centerX = r.left + r.width / 2 - pageRect.left;
+    if (before !== null) {
+      const badge = document.createElement('div');
+      badge.className = 'badge';
+      badge.textContent = before;
+      badgeLayer.appendChild(badge);
+      const w = badge.getBoundingClientRect().width;
+      badge.style.left = (centerX - gap / 2 - w) + 'px';
+      badge.style.top  = top + 'px';
+    }
+    if (after !== null) {
+      const badge = document.createElement('div');
+      badge.className = 'badge';
+      badge.textContent = after;
+      badge.style.left = (centerX + gap / 2) + 'px';
+      badge.style.top  = top + 'px';
+      badgeLayer.appendChild(badge);
     }
   });
 }
@@ -264,7 +381,7 @@ function renderSelection() {
 function render(info) {
   renderCursor();
   renderSelection();
-  if (info) infoEl.textContent = info;
+  if (info) infoEl.textContent = wordPositionsInfo + '\n' + info;
 }
 
 function setCursor(idx, keepAnchor) {
