@@ -1,5 +1,9 @@
 'use strict';
 
+// Distance FIXE entre deux mots
+const GAP = 12;
+
+
 window.addEventListener('error', e => {
   if (window.pywebview && window.pywebview.api) {
     window.pywebview.api.debug_log(`ERROR: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`);
@@ -27,12 +31,19 @@ function scheduleHiddenInputClear() {
   }, 10 * 60 * 1000);
 }
 
-// Tests 1 à 25 — curseur au clic, sélection, frappe clavier, retour à la ligne. Aucune zone
-// contenteditable : chaque mot est un span simple, reconstruit à chaque modification à partir
-// d'un texte source (fullText) qu'on édite comme une chaîne de caractères normale — un retour à
-// la ligne est juste le caractère "\n" dans ce texte, comme n'importe quel autre caractère.
 
-let fullText = "Ceci est un texte !";
+let fullText = "Ceci est un texte ! Ajoutons ici quelques mots supplementaires pour bien depasser la largeur fine de cette page et forcer une ligne suivante visible. Il faut regarder aussi comment ça se passer avec son badge :after qui déborde.";
+
+function OwnSpecialValues(){
+  var tokens = buildTokens(fullText);
+  tokens[1].after  = 1200; // est
+  tokens[2].before = 1012; // un
+  tokens[2].after  = 1299; // un
+  tokens[3].before = 1111; // texte
+  tokens[15].before = 999  // fine
+  tokens[34].after  = 899   // son
+  return tokens
+}
 
 const pageEl    = document.getElementById('page');
 const textEl    = document.getElementById('text');
@@ -64,6 +75,7 @@ function rebuildDOM() {
 
     const words = paraText.split(' ');
     var badgeX = 0;
+    var prevTop = null;
     words.forEach((w, i) => {
       // un paragraphe qui finit ou commence par un espace produit un élément vide en bout de
       // split : ce n'est pas un mot, juste un espace déjà couvert par un autre segment — ne pas
@@ -77,29 +89,49 @@ function rebuildDOM() {
         paraEl.appendChild(span);
 
         const pageRect = pageEl.getBoundingClientRect();
-        let r = span.getBoundingClientRect();
-        const naturalX = r.left - pageRect.left;
-        const naturalWidth = r.width;
-        const actualX = Math.max(naturalX, badgeX);
-        const GAP = measureGap();
+        const rightLimit = pageEl.clientWidth - parseFloat(getComputedStyle(pageEl).paddingRight);
         const token = TOKENS[tokenIdx++];
 
-        let wordX = actualX;
-        let bgText = '';
-        if (token.before !== null) {
-          const badge = document.createElement('div');
-          badge.className = 'badge';
-          badge.textContent = token.before;
-          badgeLayer.appendChild(badge);
-          const bw = badge.getBoundingClientRect().width;
-          badge.style.left = actualX + 'px';
-          badge.style.top  = (r.top - pageRect.top + r.height + 2) + 'px';
-          const mid = actualX + bw + GAP / 4;
-          wordX = Math.max(naturalX, mid - naturalWidth / 2);
-          bgText = `BG ${Math.round(actualX)} `;
+        let r, wordX, bgText, naturalWidth;
+        let beforeBadgeEl = null;
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+          r = span.getBoundingClientRect();
+          if (prevTop !== null && Math.round(r.top) !== Math.round(prevTop)) badgeX = 0;
+          prevTop = r.top;
+          const naturalX = r.left - pageRect.left;
+          naturalWidth = r.width;
+          const actualX = Math.max(naturalX, badgeX);
+
+          wordX = actualX;
+          bgText = '';
+          if (token.before !== null) {
+            beforeBadgeEl = document.createElement('div');
+            beforeBadgeEl.className = 'badge';
+            beforeBadgeEl.textContent = token.before;
+            badgeLayer.appendChild(beforeBadgeEl);
+            const bw = beforeBadgeEl.getBoundingClientRect().width;
+            beforeBadgeEl.style.left = actualX + 'px';
+            beforeBadgeEl.style.top  = (r.top - pageRect.top + r.height + 2) + 'px';
+            const mid = actualX + bw + GAP / 4;
+            wordX = Math.max(naturalX, mid - naturalWidth / 2);
+            bgText = `BG ${Math.round(actualX)} `;
+          }
+
+          // le mot (avec son éventuel badge avant) déborde le bord droit de la page : on annule
+          // tout pour ce mot et on force le passage à la ligne suivante.
+          if (wordX + naturalWidth > rightLimit && attempt === 0) {
+            if (beforeBadgeEl) { badgeLayer.removeChild(beforeBadgeEl); beforeBadgeEl = null; }
+            span.style.marginLeft = '0px';
+            paraEl.insertBefore(document.createElement('br'), span);
+            badgeX = 0;
+            prevTop = null;
+            continue;
+          }
+          break;
         }
 
-        span.style.marginLeft = (wordX - naturalX) + 'px';
+        span.style.marginLeft = (wordX - (r.left - pageRect.left)) + 'px';
         r = span.getBoundingClientRect();
 
         segments.push({ node: span, start, end: start + w.length, isWord: true });
@@ -139,14 +171,19 @@ function rebuildDOM() {
   });
 }
 
-// Test badges : un élément par mot du texte, dans l'ordre. Remplacera l'analyse Python réelle.
-const TOKENS = [
-  { i: 0, forme: 'Ceci',  canon: 'ceci',  offset: 0,  before: null, after: null },
-  { i: 1, forme: 'est',   canon: 'être',  offset: 5,  before: null, after: 1200 },
-  { i: 2, forme: 'un',    canon: 'un',    offset: 9,  before: 1012, after: 1299 },
-  { i: 3, forme: 'texte', canon: 'texte', offset: 12, before: 1111, after: null },
-  { i: 4, forme: '!',     canon: '!',     offset: 18, before: null, after: null },
-];
+// Test badges : générée automatiquement à partir de fullText, avant/après forcés par index
+// ensuite — sera remplacée par l'analyse Python réelle.
+function buildTokens(text) {
+  const tokens = [];
+  let offset = 0;
+  text.split(' ').forEach((forme, i) => {
+    tokens.push({ i, forme, canon: forme.toLowerCase(), offset, before: null, after: null });
+    offset += forme.length + 1;
+  });
+  return tokens;
+}
+
+const TOKENS = OwnSpecialValues()
 
 function computeBadges() {
   const byStart = new Map(); // offset du mot -> { canon, before, after }
