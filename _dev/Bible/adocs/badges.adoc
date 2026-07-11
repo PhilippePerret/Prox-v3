@@ -1,0 +1,52 @@
+== Les Badges ==
+
+Ils indiquent les proximités des mots.
+
+Dès qu'un mot est _en proximité_ avec un autre (à moins de 1500 caractères d'un canon identique pour un poids normal), un badge est _collé_ à chacun des deux mots.
+
+Pour un mot donné, il peut donc exister : 
+
+- un pair avant (le mot le plus proche _avant le mot_ ET SEULEMENT le mot le plus proche),
+- un pair après (le mot le plus proche _après le mot_ ET SEULEMENT le mot le plus proche).
+
+Donc tout mot peut avoir 0, 1 ou 2 badges. JAMAIS PLUS.
+
+Le texte (les écarts entre les mots/ponctuations) doit être géré de telle sorte qu'il n'y ait jamais de chevauchement entre les badges. On doit toujours arriver à cet aspect : 
+
+====
+ceci    est       un  texte.
+     1235 1002 523 12
+====
+
+Note : pour le mot "un", on ne peut pas rendre ici le placement exact. Il sera calculé avec un gap différent dès qu'un mot de deux lettres aura ses DEUX badges.
+
+==== Principes de placement ====
+
+Les badges sont placés par rapport au MILIEU du mot
+- le bord droit du badge gauche (distance avec le pair avant) se trouve à MILIEU - 1/2 GAP
+- le bord gauche du badge droit (distance avec le pair après) se trouve à MILIEU + 1/2 GAP
+
+où GAP est une valeur fixe à déterminer, qui peut valoir la largeur d'un 'e' pour les essais.
+
+Ensuite, les mots autour doivent être placés tout simplement pour que :
+
+- les badges ne se superposent jamais
+- les mots ne soient JAMAIS au-dessus d'un badge qui ne leur appartiennent pas.
+
+====
+# MAUVAIS
+    mot   est
+      12052    # le 0 est chevauché par un 3
+# BON
+    mot     est
+      120 352
+
+# MAUVAIS
+    mot est
+      120
+# BON
+    mot   est
+        120
+====
+
+- mot de deux lettres avec UN badge : badge placé sous la letre (1re si pair avant, 2e si pair après)
