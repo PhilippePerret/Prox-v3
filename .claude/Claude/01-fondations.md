@@ -144,7 +144,7 @@ Deux niveaux :
 
 ## Fenêtre de travail
 
-Affiche ~3 pages autour du point chaud courant (≈ 6000 caractères / 600 mots). Pas tout le document — concentration sur la zone active.
+Affiche ~3 pages (en 2 colonnes) autour du point chaud courant (≈ 6000 caractères / 600 mots). Pas tout le document — concentration sur la zone active.
 
 ---
 

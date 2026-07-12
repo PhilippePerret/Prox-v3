@@ -19,13 +19,7 @@ groupée par catégorie, PAS la formulation d'origine item par item.
 10. Frappe clavier — backspace/delete avec scission de mots
 11. Entrée — saut de paragraphe (`\n` dans `fullText`)
 
-## Bug ouvert
-
-12. Entrée en début de mot — mot passe à la ligne suivante, mais curseur affiché reste
-    visuellement sur l'ancienne ligne. Log diagnostic branché (`window.pywebview.api.debug_log` →
-    `/tmp/prox_test_debug.log`).
-
-## Confirmé fonctionnel (utilisateur) — suite
+## Confirmé fonctionnel (utilisateur)
 
 18. Espacement des badges / placement des mots (avant/après, GAP, décalage) — algo conçu et
     validé par l'utilisateur (`placeWordAt`, `test.js`), testé dans tous les sens. Ce point n'est
@@ -33,7 +27,6 @@ groupée par catégorie, PAS la formulation d'origine item par item.
 
 ## Pas encore testé
 
-13. Saisie composée / accents
 14. Copier-coller
 15. Annuler (undo)
 16. Rétablir (redo)
