@@ -26,8 +26,8 @@ def main():
         title    = "Test — Prox",
         url      = str(STATIC_DIR / "test.html"),
         js_api   = TestAPI(),
-        width    = 1300,
-        height   = 900,
+        width    = 2200,
+        height   = 1300,
         min_size = (600, 400),
     )
     webview.start(debug=False)

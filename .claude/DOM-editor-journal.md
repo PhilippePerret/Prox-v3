@@ -122,7 +122,39 @@
   conséquence — à surveiller si un comportement déjà validé (clic, sélection, flèches) se
   dérègle.
 
+- Essai grandeur nature (~2400 mots, badges aléatoires ~75%/mot) : lag sévère confirmé (plusieurs
+  secondes par frappe) avec reconstruction complète à chaque touche. Cause 1 : reconstruction
+  systématique de tout (mots + badges) à chaque frappe, avec mesures forcées (`getBoundingClientRect`)
+  en boucle. Cause 2, plus profonde : tout le texte dans un seul bloc — le navigateur recalcule la
+  mise en page de tout le bloc dès qu'un mot change, même si le JS ne retouche qu'une petite partie.
+  Fix tenté (à revérifier) : texte découpé en paragraphes (~50 mots chacun), et reconstruction
+  limitée au seul paragraphe modifié — les autres paragraphes (DOM + badges) restent intacts, sans
+  mesure ni recalcul. Dans un paragraphe, la frappe simple (lettre) ne retouche que du mot modifié
+  jusqu'à stabilisation ; une frappe qui change le nombre de mots dans un paragraphe (espace,
+  Entrée) reconstruit ce seul paragraphe entièrement, pas les autres.
+
+## 2026-07-12
+
+- Fluidité de la frappe (texte + Entrée) : dégradée par les mesures DOM (`getBoundingClientRect`,
+  placement badges/marges) faites en boucle à chaque frappe, y compris pour du texte qui n'avait
+  pas besoin de bouger. Trois fix tentés (à vérifier) :
+  1. `quickSync`/`quickSyncParagraph` (`test.js`) : mise à jour immédiate du texte tapé (texte des
+     spans + segments), sans mesure ni placement — le placement (badges, décalages `placeWordAt`)
+     est différé 1s après la dernière frappe (`scheduleRebuild`). `st.text` sert volontairement de
+     marqueur "dernière position calculée", en retard sur `span.textContent` pendant la fenêtre de
+     débounce, pour que `syncParagraph` sache quoi replacer une fois la pause passée.
+  2. `quickSync`/`quickSyncParagraphCount` : une frappe normale, ou une Entrée/fusion de
+     paragraphe, ne retouche plus que le paragraphe concerné (repéré via `cursorIdx`) — avant,
+     tout changement du nombre de paragraphes déclenchait un rebuild complet du document entier
+     (mesure + badges de tous les paragraphes), d'où la lenteur signalée sur Entrée.
+  3. `renderCursor` : la relance du clignotement du curseur lisait `cursorEl.offsetHeight`, ce qui
+     force un reflow synchrone de toute la page à chaque frappe. Remplacé par
+     `requestAnimationFrame` (aucune lecture de propriété de layout).
+
 ## Pour plus tard
 
-- "↑"/"↓" ne fait rien : pas de cas `ArrowUp`/`ArrowDown` dans le handler `keydown` de `test.js` —
-  le curseur devrait changer de ligne visuelle. Pas encore traité.
+- ~~"↑"/"↓" ne fait rien~~ — fait et confirmé depuis (voir plus haut, `moveVertical`).
+
+- Justification : ne plus laisser le navigateur gérer lui-même la justification/le retour à la
+  ligne — la frappe devient très pénible avec son comportement natif. À reprendre en début de
+  prochaine séance (demande explicite et répétée de l'utilisateur).

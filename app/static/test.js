@@ -32,17 +32,36 @@ function scheduleHiddenInputClear() {
 }
 
 
-let fullText = "Ceci est un texte ! Ajoutons ici quelques mots supplementaires pour bien depasser la largeur fine de cette page et forcer une ligne suivante visible. Il faut regarder aussi comment ça se passer avec son badge :after qui déborde.";
+// Essai grandeur nature : ~2400 mots (équivalent 3 pages de ~800 mots), badges aléatoires,
+// au moins 1000 badges par tranche de 800 mots (avant/après tirés à 75% chacun, indépendamment).
+// Découpé en paragraphes (un saut de ligne tous les ~50 mots) pour que le navigateur n'ait à
+// recalculer la mise en page que du paragraphe touché par une frappe, pas du document entier.
+function generateStressText(totalWords, wordsPerPara) {
+  const pool = ["maison","texte","proximite","badge","mot","phrase","ligne","page","curseur","exemple",
+    "analyse","distance","canon","forme","repetition","lecture","ecriture","fenetre","fonction",
+    "variable","boucle","tableau","objet","valeur","position","largeur","hauteur","couleur","rapide","lent"];
+  const paras = [];
+  let remaining = totalWords;
+  while (remaining > 0) {
+    const n = Math.min(wordsPerPara, remaining);
+    const words = [];
+    for (let i = 0; i < n; i++) words.push(pool[Math.floor(Math.random() * pool.length)]);
+    paras.push(words.join(' ') + '.');
+    remaining -= n;
+  }
+  paras[0] = 'Ceci ' + paras[0];
+  return paras.join('\n');
+}
+
+let fullText = generateStressText(2400, 50);
 
 function OwnSpecialValues(){
   var tokens = buildTokens(fullText);
-  tokens[1].after  = 1200; // est
-  tokens[2].before = 1012; // un
-  tokens[2].after  = 1299; // un
-  tokens[3].before = 1111; // texte
-  tokens[15].before = 999  // fine
-  tokens[34].after  = 899   // son
-  return tokens
+  tokens.forEach(t => {
+    if (Math.random() < 0.75) t.before = 100 + Math.floor(Math.random() * 2000);
+    if (Math.random() < 0.75) t.after  = 100 + Math.floor(Math.random() * 2000);
+  });
+  return tokens;
 }
 
 const pageEl    = document.getElementById('page');
@@ -58,127 +77,321 @@ const badgeLayer = document.getElementById('badge-layer');
 // rien de mesurable à son propre emplacement (pas de glyphe) — voir rectForIndex.
 let segments = [];
 
-let wordPositionsInfo = '';
+// paraStates : suivi persistant, paragraphe par paragraphe puis mot par mot, du dernier rendu —
+// permet à rebuildDOM de ne retoucher que le paragraphe réellement affecté par une frappe (ni les
+// autres paragraphes, ni leurs badges), au lieu de tout redétruire à chaque frappe.
+let paraStates = []; // [{ paraEl, wordState: [{span, spaceEl, beforeEl, afterEl, text, naturalX, _badgeXAfter}] }]
+
+function placeWordAt(paraEl, span, w, start, badgeXIn, prevTopIn, token) {
+  // Place un mot (span déjà dans le DOM) : badge avant, décalage, badge après, retour à la ligne
+  // forcé si besoin. Retourne { badgeX, prevTop } à transmettre au mot suivant.
+  const pageRect = pageEl.getBoundingClientRect();
+  const rightLimit = pageEl.clientWidth - parseFloat(getComputedStyle(pageEl).paddingRight);
+  let badgeX = badgeXIn, prevTop = prevTopIn;
+  let r, wordX, naturalWidth, beforeBadgeEl = null, afterBadgeEl = null, actualX = 0;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    r = span.getBoundingClientRect();
+    if (prevTop !== null && Math.round(r.top) !== Math.round(prevTop)) badgeX = 0;
+    prevTop = r.top;
+    const naturalX = r.left - pageRect.left;
+    naturalWidth = r.width;
+    actualX = Math.max(naturalX, badgeX);
+
+    wordX = actualX;
+    if (token.before !== null) {
+      beforeBadgeEl = document.createElement('div');
+      beforeBadgeEl.className = 'badge';
+      beforeBadgeEl.textContent = token.before;
+      badgeLayer.appendChild(beforeBadgeEl);
+      const bw = beforeBadgeEl.getBoundingClientRect().width;
+      beforeBadgeEl.style.left = actualX + 'px';
+      beforeBadgeEl.style.top  = (r.top - pageRect.top + r.height + 2) + 'px';
+      const mid = actualX + bw + GAP / 4;
+      wordX = Math.max(naturalX, mid - naturalWidth / 2);
+    }
+
+    if (wordX + naturalWidth > rightLimit && attempt === 0) {
+      if (beforeBadgeEl) { badgeLayer.removeChild(beforeBadgeEl); beforeBadgeEl = null; }
+      span.style.marginLeft = '0px';
+      paraEl.insertBefore(document.createElement('br'), span);
+      badgeX = 0;
+      prevTop = null;
+      continue;
+    }
+    break;
+  }
+
+  span.style.marginLeft = (wordX - (r.left - pageRect.left)) + 'px';
+  r = span.getBoundingClientRect();
+
+  const centerX = r.left + r.width / 2 - pageRect.left;
+  const top = r.bottom - pageRect.top + 2;
+
+  if (token.after !== null) {
+    afterBadgeEl = document.createElement('div');
+    afterBadgeEl.className = 'badge';
+    afterBadgeEl.textContent = token.after;
+    afterBadgeEl.style.left = (centerX + GAP / 4) + 'px';
+    afterBadgeEl.style.top  = top + 'px';
+    badgeLayer.appendChild(afterBadgeEl);
+    const br = afterBadgeEl.getBoundingClientRect();
+    const bd = Math.round(br.right - pageRect.left);
+    badgeX = bd + GAP;
+  }
+
+  return { badgeX, prevTop, naturalX: actualX, end: start + w.length, beforeBadgeEl, afterBadgeEl };
+}
+
+// Construit/retouche les mots d'UN SEUL paragraphe. oldWordState === null (ou nombre de mots
+// différent) => reconstruction complète de ce paragraphe (mais des autres). Sinon, ne retouche
+// qu'à partir du premier mot changé, jusqu'à ce qu'un mot retrouve exactement sa position d'avant.
+function syncParagraph(paraEl, oldWordState, words, tokenIdxStart) {
+  const isFull = !oldWordState || oldWordState.length !== words.length;
+  let wordState;
+  let startIdx = 0;
+
+  if (isFull) {
+    if (oldWordState) oldWordState.forEach(st => {
+      if (st.beforeEl) badgeLayer.removeChild(st.beforeEl);
+      if (st.afterEl)  badgeLayer.removeChild(st.afterEl);
+    });
+    paraEl.innerHTML = '';
+    wordState = [];
+  } else {
+    wordState = oldWordState;
+    while (startIdx < words.length && wordState[startIdx].text === words[startIdx]) startIdx++;
+    if (startIdx === words.length) return wordState; // ce paragraphe n'a pas changé
+  }
+
+  let tokenIdx = tokenIdxStart + startIdx;
+  var badgeX = startIdx > 0 ? (wordState[startIdx - 1]._badgeXAfter || 0) : 0;
+  var prevTop = startIdx > 0 ? wordState[startIdx - 1].span.getBoundingClientRect().top : null;
+
+  for (let i = startIdx; i < words.length; i++) {
+    const w = words[i];
+    let st = wordState[i];
+    let textChanged = true;
+    let span;
+    if (isFull || !st) {
+      span = document.createElement('span');
+      span.className = 'word';
+      span.textContent = w;
+      paraEl.appendChild(span);
+      st = { span, spaceEl: null, beforeEl: null, afterEl: null, text: w, naturalX: 0, _badgeXAfter: 0 };
+      wordState[i] = st;
+    } else {
+      textChanged = st.text !== w;
+      if (textChanged) { st.span.textContent = w; st.text = w; }
+      span = st.span;
+    }
+    if (st.beforeEl) { badgeLayer.removeChild(st.beforeEl); st.beforeEl = null; }
+    if (st.afterEl)  { badgeLayer.removeChild(st.afterEl);  st.afterEl  = null; }
+
+    const token = TOKENS[tokenIdx++];
+    const placed = placeWordAt(paraEl, span, w, 0, badgeX, prevTop, token);
+    const stabilized = !isFull && !textChanged && Math.round(placed.naturalX) === Math.round(st.naturalX);
+    badgeX = placed.badgeX;
+    prevTop = placed.prevTop;
+    st.naturalX = placed.naturalX;
+    st.beforeEl = placed.beforeBadgeEl;
+    st.afterEl  = placed.afterBadgeEl;
+    st._badgeXAfter = badgeX;
+
+    if (i < words.length - 1 && !st.spaceEl) {
+      const spaceNode = document.createTextNode(' ');
+      paraEl.insertBefore(spaceNode, span.nextSibling);
+      st.spaceEl = spaceNode;
+    }
+
+    if (stabilized) break;
+  }
+
+  return wordState;
+}
 
 function rebuildDOM() {
-  textEl.innerHTML = '';
-  badgeLayer.innerHTML = '';
-  segments = [];
-  wordPositionsInfo = '';
-  let pos = 0;
-  let tokenIdx = 0;
   const paragraphs = fullText.split('\n');
-  paragraphs.forEach((paraText, pi) => {
-    const paraEl = document.createElement('div');
-    paraEl.className = 'para';
-    textEl.appendChild(paraEl);
 
-    const words = paraText.split(' ');
-    var badgeX = 0;
-    var prevTop = null;
-    words.forEach((w, i) => {
-      // un paragraphe qui finit ou commence par un espace produit un élément vide en bout de
-      // split : ce n'est pas un mot, juste un espace déjà couvert par un autre segment — ne pas
-      // créer de span/segment vide pour lui (sinon aucun noeud texte à mesurer à cette position).
-      const isEmptyBoundary = w === '' && (i === 0 || i === words.length - 1) && words.length > 1;
-      if (!isEmptyBoundary) {
-        const start = pos;
-        const span = document.createElement('span');
-        span.className = 'word';
-        span.textContent = w;
-        paraEl.appendChild(span);
-
-        const pageRect = pageEl.getBoundingClientRect();
-        const rightLimit = pageEl.clientWidth - parseFloat(getComputedStyle(pageEl).paddingRight);
-        const token = TOKENS[tokenIdx++];
-
-        let r, wordX, bgText, naturalWidth;
-        let beforeBadgeEl = null;
-
-        for (let attempt = 0; attempt < 2; attempt++) {
-          r = span.getBoundingClientRect();
-          if (prevTop !== null && Math.round(r.top) !== Math.round(prevTop)) badgeX = 0;
-          prevTop = r.top;
-          const naturalX = r.left - pageRect.left;
-          naturalWidth = r.width;
-          const actualX = Math.max(naturalX, badgeX);
-
-          wordX = actualX;
-          bgText = '';
-          if (token.before !== null) {
-            beforeBadgeEl = document.createElement('div');
-            beforeBadgeEl.className = 'badge';
-            beforeBadgeEl.textContent = token.before;
-            badgeLayer.appendChild(beforeBadgeEl);
-            const bw = beforeBadgeEl.getBoundingClientRect().width;
-            beforeBadgeEl.style.left = actualX + 'px';
-            beforeBadgeEl.style.top  = (r.top - pageRect.top + r.height + 2) + 'px';
-            const mid = actualX + bw + GAP / 4;
-            wordX = Math.max(naturalX, mid - naturalWidth / 2);
-            bgText = `BG ${Math.round(actualX)} `;
-          }
-
-          // le mot (avec son éventuel badge avant) déborde le bord droit de la page : on annule
-          // tout pour ce mot et on force le passage à la ligne suivante.
-          if (wordX + naturalWidth > rightLimit && attempt === 0) {
-            if (beforeBadgeEl) { badgeLayer.removeChild(beforeBadgeEl); beforeBadgeEl = null; }
-            span.style.marginLeft = '0px';
-            paraEl.insertBefore(document.createElement('br'), span);
-            badgeX = 0;
-            prevTop = null;
-            continue;
-          }
-          break;
-        }
-
-        span.style.marginLeft = (wordX - (r.left - pageRect.left)) + 'px';
-        r = span.getBoundingClientRect();
-
-        segments.push({ node: span, start, end: start + w.length, isWord: true });
-        pos += w.length;
-
-        wordPositionsInfo += `${w} ${Math.round(r.left - pageRect.left)}/${Math.round(r.width)} `;
-        wordPositionsInfo += bgText;
-
-        const centerX = r.left + r.width / 2 - pageRect.left;
-        const top = r.bottom - pageRect.top + 2;
-
-        if (token.after !== null) {
-          const badge = document.createElement('div');
-          badge.className = 'badge';
-          badge.textContent = token.after;
-          badge.style.left = (centerX + GAP / 4) + 'px';
-          badge.style.top  = top + 'px';
-          badgeLayer.appendChild(badge);
-          const br = badge.getBoundingClientRect();
-          const bd = Math.round(br.right - pageRect.left);
-          wordPositionsInfo += `BD ${bd} `;
-          badgeX = bd + GAP;
-        }
+  if (paraStates.length !== paragraphs.length) {
+    // nombre de paragraphes différent (premier chargement, ou Entrée) : reconstruction complète,
+    // mais paragraphe par paragraphe (chacun son propre bloc, indépendant des autres).
+    textEl.innerHTML = '';
+    badgeLayer.innerHTML = '';
+    paraStates = [];
+    let tokenIdx = 0;
+    paragraphs.forEach(paraText => {
+      const paraEl = document.createElement('div');
+      paraEl.className = 'para';
+      textEl.appendChild(paraEl);
+      const words = paraText.split(' ');
+      const wordState = syncParagraph(paraEl, null, words, tokenIdx);
+      paraStates.push({ paraEl, wordState });
+      tokenIdx += words.length;
+    });
+  } else {
+    // même nombre de paragraphes : ne retoucher que celui qui a changé — les autres, et leurs
+    // badges, restent intacts (aucune mesure, aucune reconstruction, aucun recalcul de mise en
+    // page pour eux).
+    let tokenIdx = 0;
+    for (let pi = 0; pi < paragraphs.length; pi++) {
+      const words = paragraphs[pi].split(' ');
+      const ps = paraStates[pi];
+      const currentText = ps.wordState.map(st => st.text).join(' ');
+      if (currentText !== paragraphs[pi]) {
+        ps.wordState = syncParagraph(ps.paraEl, ps.wordState, words, tokenIdx);
       }
-      if (i < words.length - 1) {
-        const spaceNode = document.createTextNode(' ');
-        paraEl.appendChild(spaceNode);
-        segments.push({ node: spaceNode, start: pos, end: pos + 1, isWord: false });
+      tokenIdx += words.length;
+    }
+  }
+
+  recomputeSegments();
+}
+
+// Offsets caractère de chaque segment (mot/espace/saut) — bon marché, aucune mesure DOM. Lit la
+// longueur sur `span.textContent` (toujours exact) et non sur `st.text` : `st.text` sert de
+// marqueur "dernière position calculée" pour quickSync/syncParagraph (voir plus bas) et peut donc
+// être volontairement en retard d'une frappe pendant la fenêtre de débounce.
+function recomputeSegments() {
+  segments = [];
+  let pos = 0;
+  paraStates.forEach((ps, pi) => {
+    ps.wordState.forEach((st, i) => {
+      const len = st.span.textContent.length;
+      segments.push({ node: st.span, start: pos, end: pos + len, isWord: true });
+      pos += len;
+      if (i < ps.wordState.length - 1) {
+        segments.push({ node: st.spaceEl, start: pos, end: pos + 1, isWord: false });
         pos += 1;
       }
     });
-
-    if (pi < paragraphs.length - 1) {
-      segments.push({ node: paraEl, start: pos, end: pos + 1, isWord: false, isBreak: true });
+    if (pi < paraStates.length - 1) {
+      segments.push({ node: ps.paraEl, start: pos, end: pos + 1, isWord: false, isBreak: true });
       pos += 1;
     }
   });
+}
+
+// ── Mise à jour immédiate, légère (frappe) ────────────────────────────────────────────────────
+// Affiche le texte tapé tout de suite : texte des spans + segments, SANS toucher aux badges ni
+// aux marges de placement (placeWordAt) — aucun getBoundingClientRect ici, donc aucune des
+// cascades qui faisaient "tout bouger" à chaque touche. Le placement propre (badges, décalages)
+// arrive séparément, 1s après la dernière frappe (scheduleRebuild, voir plus bas).
+// Marque volontairement `st.text` en retard sur le mot réellement affiché, pour que syncParagraph
+// (appelé plus tard par rebuildDOM) détecte le mot à replacer — voir son usage de `st.text` pour
+// trouver `startIdx`.
+function quickSyncParagraph(ps, words) {
+  const wordState = ps.wordState;
+  const paraEl = ps.paraEl;
+
+  if (words.length === wordState.length) {
+    for (let i = 0; i < words.length; i++) {
+      if (wordState[i].span.textContent !== words[i]) {
+        wordState[i].span.textContent = words[i];
+        // st.text n'est PAS mis à jour ici : reste le marqueur de "dernière position calculée".
+      }
+    }
+    return;
+  }
+
+  // Nombre de mots différent (espace tapé/supprimé) : reconstruction structurelle de ce seul
+  // paragraphe, spans + espaces texte nus, sans badge ni marge — le placement arrive plus tard.
+  wordState.forEach(st => {
+    if (st.beforeEl) badgeLayer.removeChild(st.beforeEl);
+    if (st.afterEl)  badgeLayer.removeChild(st.afterEl);
+  });
+  paraEl.innerHTML = '';
+  const newState = [];
+  words.forEach((w, i) => {
+    const span = document.createElement('span');
+    span.className = 'word';
+    span.textContent = w;
+    paraEl.appendChild(span);
+    let spaceEl = null;
+    if (i < words.length - 1) {
+      spaceEl = document.createTextNode(' ');
+      paraEl.appendChild(spaceEl);
+    }
+    // text: '' volontaire (jamais égal à w) : force syncParagraph à replacer TOUT ce paragraphe
+    // à la prochaine passe différée, badges compris.
+    newState.push({ span, spaceEl, beforeEl: null, afterEl: null, text: '', naturalX: 0, _badgeXAfter: 0 });
+  });
+  ps.wordState = newState;
+}
+
+// Index (0-based) du paragraphe contenant idx, sans mesure DOM.
+function paragraphIndexAt(idx) {
+  return fullText.slice(0, idx).split('\n').length - 1;
+}
+
+// Changement du nombre de paragraphes (Entrée, ou Backspace/Delete qui fusionne deux
+// paragraphes) : ne retouche QUE le(s) paragraphe(s) concerné(s) — repéré via cursorIdx — jamais
+// tout le document. Une frappe simple ne peut scinder/fusionner qu'un seul paragraphe à la fois.
+// Retourne true si un rebuild complet (lourd, mesure DOM) a eu lieu à la place — cas rare, une
+// sélection à cheval sur plusieurs paragraphes supprimée d'un coup, pas de raccourci sûr pour ça.
+function quickSyncParagraphCount() {
+  const paragraphs = fullText.split('\n');
+  const newCount = paragraphs.length;
+  const oldCount = paraStates.length;
+
+  if (newCount === oldCount + 1) {
+    // scission : cursorIdx est juste après le \n inséré, donc au tout début du second morceau.
+    const pi = paragraphIndexAt(cursorIdx) - 1;
+    quickSyncParagraph(paraStates[pi], paragraphs[pi].split(' '));
+    const newParaEl = document.createElement('div');
+    newParaEl.className = 'para';
+    textEl.insertBefore(newParaEl, paraStates[pi].paraEl.nextSibling);
+    const newPs = { paraEl: newParaEl, wordState: [] };
+    quickSyncParagraph(newPs, paragraphs[pi + 1].split(' '));
+    paraStates.splice(pi + 1, 0, newPs);
+    return false;
+  }
+
+  if (newCount === oldCount - 1) {
+    // fusion : cursorIdx est dans le paragraphe résultant ; celui d'après disparaît.
+    const pi = paragraphIndexAt(cursorIdx);
+    textEl.removeChild(paraStates[pi + 1].paraEl);
+    paraStates[pi + 1].wordState.forEach(st => {
+      if (st.beforeEl) badgeLayer.removeChild(st.beforeEl);
+      if (st.afterEl)  badgeLayer.removeChild(st.afterEl);
+    });
+    paraStates.splice(pi + 1, 1);
+    quickSyncParagraph(paraStates[pi], paragraphs[pi].split(' '));
+    return false;
+  }
+
+  rebuildDOM();
+  return true;
+}
+
+function quickSync() {
+  const paragraphs = fullText.split('\n');
+  if (paraStates.length !== paragraphs.length) {
+    const didFullRebuild = quickSyncParagraphCount();
+    if (!didFullRebuild) recomputeSegments();
+    return didFullRebuild;
+  }
+  // Une frappe normale (lettre, espace, backspace dans un mot) ne touche jamais qu'UN seul
+  // paragraphe, celui du curseur — pas la peine de reparcourir tout le document à chaque touche.
+  const pi = paragraphIndexAt(cursorIdx);
+  quickSyncParagraph(paraStates[pi], paragraphs[pi].split(' '));
+  recomputeSegments();
+  return false;
 }
 
 // Test badges : générée automatiquement à partir de fullText, avant/après forcés par index
 // ensuite — sera remplacée par l'analyse Python réelle.
 function buildTokens(text) {
   const tokens = [];
+  let i = 0;
   let offset = 0;
-  text.split(' ').forEach((forme, i) => {
-    tokens.push({ i, forme, canon: forme.toLowerCase(), offset, before: null, after: null });
-    offset += forme.length + 1;
+  text.split('\n').forEach((paraText, pi) => {
+    paraText.split(' ').forEach(forme => {
+      tokens.push({ i, forme, canon: forme.toLowerCase(), offset, before: null, after: null });
+      offset += forme.length + 1;
+      i++;
+    });
+    offset += 1; // le caractère de saut de ligne lui-même
   });
   return tokens;
 }
@@ -387,11 +600,13 @@ function renderCursor() {
   cursorEl.style.left    = (rect.left - pageRect.left) + 'px';
   cursorEl.style.top     = (rect.top  - pageRect.top)  + 'px';
   cursorEl.style.height  = (rect.bottom - rect.top) + 'px';
-  // relance le clignotement à chaque déplacement, pour que le curseur soit toujours visible juste
-  // après un mouvement au lieu de retomber, par hasard, dans sa phase invisible
+  // Relance le clignotement à chaque déplacement, pour que le curseur soit toujours visible juste
+  // après un mouvement au lieu de retomber, par hasard, dans sa phase invisible. `offsetHeight`
+  // forcerait un reflow synchrone de TOUTE la page à chaque frappe (coûteux sur un gros document,
+  // même quand rien d'autre ne bouge) — on relance via une frame d'animation à la place, sans
+  // lire aucune propriété de layout.
   cursorEl.style.animation = 'none';
-  void cursorEl.offsetHeight;
-  cursorEl.style.animation = '';
+  requestAnimationFrame(() => { cursorEl.style.animation = ''; });
 }
 
 function renderSelection() {
@@ -418,7 +633,7 @@ function renderSelection() {
 function render(info) {
   renderCursor();
   renderSelection();
-  if (info) infoEl.textContent = wordPositionsInfo + '\n' + info;
+  if (info) infoEl.textContent = info;
 }
 
 function setCursor(idx, keepAnchor) {
@@ -520,6 +735,20 @@ function nextWordBoundary(idx, dir) {
 // ── Édition : tout passe par une modification de fullText, puis reconstruction ───────────────
 // Un retour à la ligne (Entrée) est juste le caractère "\n" — inséré, supprimé, fusionné comme
 // n'importe quel autre caractère, sans cas particulier.
+
+// Débounce du PLACEMENT (badges, décalages de marge) : quickSync() a déjà affiché le texte tapé
+// tout de suite (voir plus haut) ; ici on ne fait que différer la passe coûteuse (placeWordAt,
+// mesures DOM) de 1s après la dernière frappe, pour éviter la cascade visuelle à chaque touche.
+let rebuildDebounceTimer = null;
+function scheduleRebuild() {
+  clearTimeout(rebuildDebounceTimer);
+  rebuildDebounceTimer = setTimeout(() => {
+    rebuildDebounceTimer = null;
+    rebuildDOM();
+    setCursor(cursorIdx, false);
+  }, 1000);
+}
+
 function deleteSelectionIfAny() {
   if (anchorIdx === null || anchorIdx === cursorIdx) return false;
   const from = Math.min(anchorIdx, cursorIdx);
@@ -534,8 +763,9 @@ function insertText(str) {
   deleteSelectionIfAny();
   fullText = fullText.slice(0, cursorIdx) + str + fullText.slice(cursorIdx);
   cursorIdx += str.length;
-  rebuildDOM();
+  const didFullRebuild = quickSync();
   setCursor(cursorIdx, false);
+  if (!didFullRebuild) scheduleRebuild();
 }
 
 function insertParagraphBreak() {
@@ -548,20 +778,24 @@ function insertParagraphBreak() {
 }
 
 function backspace() {
-  if (deleteSelectionIfAny()) { rebuildDOM(); setCursor(cursorIdx, false); return; }
-  if (cursorIdx === 0) return;
-  fullText = fullText.slice(0, cursorIdx - 1) + fullText.slice(cursorIdx);
-  cursorIdx -= 1;
-  rebuildDOM();
+  if (!deleteSelectionIfAny()) {
+    if (cursorIdx === 0) return;
+    fullText = fullText.slice(0, cursorIdx - 1) + fullText.slice(cursorIdx);
+    cursorIdx -= 1;
+  }
+  const didFullRebuild = quickSync();
   setCursor(cursorIdx, false);
+  if (!didFullRebuild) scheduleRebuild();
 }
 
 function deleteForward() {
-  if (deleteSelectionIfAny()) { rebuildDOM(); setCursor(cursorIdx, false); return; }
-  if (cursorIdx >= fullText.length) return;
-  fullText = fullText.slice(0, cursorIdx) + fullText.slice(cursorIdx + 1);
-  rebuildDOM();
+  if (!deleteSelectionIfAny()) {
+    if (cursorIdx >= fullText.length) return;
+    fullText = fullText.slice(0, cursorIdx) + fullText.slice(cursorIdx + 1);
+  }
+  const didFullRebuild = quickSync();
   setCursor(cursorIdx, false);
+  if (!didFullRebuild) scheduleRebuild();
 }
 
 // ── Souris : clic simple, glissé, Maj+clic, double-clic, triple-clic ─────────────────────────

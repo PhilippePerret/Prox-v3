@@ -25,6 +25,12 @@ groupée par catégorie, PAS la formulation d'origine item par item.
     visuellement sur l'ancienne ligne. Log diagnostic branché (`window.pywebview.api.debug_log` →
     `/tmp/prox_test_debug.log`).
 
+## Confirmé fonctionnel (utilisateur) — suite
+
+18. Espacement des badges / placement des mots (avant/après, GAP, décalage) — algo conçu et
+    validé par l'utilisateur (`placeWordAt`, `test.js`), testé dans tous les sens. Ce point n'est
+    PAS ouvert, ne plus le lister comme "pas encore testé".
+
 ## Pas encore testé
 
 13. Saisie composée / accents
@@ -32,6 +38,5 @@ groupée par catégorie, PAS la formulation d'origine item par item.
 15. Annuler (undo)
 16. Rétablir (redo)
 17. Justification maison
-18. Espacement des badges (cœur du problème initial ProseMirror)
 19. Survol souris sur badge (indépendant du problème mousemove/mouseover global)
 20. Branchement de l'analyse Python (`window.pywebview.api.analyze(text)`)
