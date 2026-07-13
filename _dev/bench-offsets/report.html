@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bancs d'essais — tableau comparatif</title>
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 2em; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: right; }
+  th, td:first-child { text-align: left; }
+  th { background: #222; color: #fff; }
+  tr:nth-child(even) { background: #f5f5f5; }
+  tr.manquant td { color: #b00; font-style: italic; }
+  td:last-child { font-weight: bold; }
+  td.best { background: #7be07b; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Bancs d'essais — tableau comparatif (12 tests, temps en ms)</h1>
+<table>
+<thead><tr><th>Test</th><th>Spacy analyse loading</th><th>Tokens Fullfillment</th><th>HTML building</th><th>Html doc loading</th><th>Total</th></tr></thead>
+<tbody>
+<tr><td>READ-STREAMING/SPACE-CSS/PY</td><td>98</td><td>25</td><td>33</td><td>983</td><td class="best">1139</td></tr><tr><td>READ-FULL-TEXT/SPACE-CSS/PY</td><td>118</td><td>24</td><td>33</td><td>1060</td><td>1235</td></tr><tr><td>READ-FULL-TEXT/SPACE-CALC/PY</td><td>100</td><td>24</td><td>31</td><td>1086</td><td>1242</td></tr><tr><td>READ-STREAMING/SPACE-CALC/PY</td><td>101</td><td>42</td><td>30</td><td>1076</td><td>1248</td></tr><tr><td>READ-STREAMING/SPLIT-SPACE/PY</td><td>106</td><td>100</td><td class="best">27</td><td>1035</td><td>1267</td></tr><tr><td>READ-FULL-TEXT/SPLIT-SPACE/JS</td><td>55</td><td>113</td><td>884</td><td class="best">284</td><td>1336</td></tr><tr><td>READ-FULL-TEXT/SPLIT-SPACE/PY</td><td>76</td><td>96</td><td>29</td><td>1604</td><td>1804</td></tr><tr><td>READ-FULL-TEXT/SPACE-CSS/JS</td><td>64</td><td>27</td><td>1736</td><td>1114</td><td>2941</td></tr><tr><td>READ-FULL-TEXT/SPACE-CALC/JS</td><td class="best">46</td><td>20</td><td>2503</td><td>1430</td><td>3999</td></tr><tr><td>READ-STREAMING/SPLIT-SPACE/JS</td><td>67</td><td>148</td><td>2357</td><td>1445</td><td>4016</td></tr><tr><td>READ-STREAMING/SPACE-CSS/JS</td><td>57</td><td class="best">14</td><td>2715</td><td>1282</td><td>4068</td></tr><tr><td>READ-STREAMING/SPACE-CALC/JS</td><td>53</td><td>24</td><td>2952</td><td>1750</td><td>4780</td></tr>
+</tbody>
+</table>
+</body>
+</html>

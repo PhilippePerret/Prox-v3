@@ -1,0 +1,56 @@
+[
+  {
+    "nom": "READ-FULL-TEXT/SPLIT-SPACE/JS",
+    "spacy_analyse_loading_ms": 55.4,
+    "tokens_fullfillment_ms": 112.7,
+    "html_building_ms": 884.2,
+    "html_doc_loading_ms": 283.79150000000004,
+    "total_ms": 1336.2,
+    "tokens": 174771
+  },
+  {
+    "nom": "READ-FULL-TEXT/SPACE-CSS/JS",
+    "spacy_analyse_loading_ms": 64.4,
+    "tokens_fullfillment_ms": 27.4,
+    "html_building_ms": 1735.7,
+    "html_doc_loading_ms": 1113.7030829999999,
+    "total_ms": 2941.3,
+    "tokens": 218390
+  },
+  {
+    "nom": "READ-FULL-TEXT/SPACE-CALC/JS",
+    "spacy_analyse_loading_ms": 46.3,
+    "tokens_fullfillment_ms": 19.7,
+    "html_building_ms": 2502.9,
+    "html_doc_loading_ms": 1429.888167,
+    "total_ms": 3998.8,
+    "tokens": 218390
+  },
+  {
+    "nom": "READ-STREAMING/SPLIT-SPACE/JS",
+    "spacy_analyse_loading_ms": 66.6,
+    "tokens_fullfillment_ms": 147.6,
+    "html_building_ms": 2357.2,
+    "html_doc_loading_ms": 1445.0873339999998,
+    "total_ms": 4016.5,
+    "tokens": 174771
+  },
+  {
+    "nom": "READ-STREAMING/SPACE-CSS/JS",
+    "spacy_analyse_loading_ms": 57,
+    "tokens_fullfillment_ms": 14.1,
+    "html_building_ms": 2714.8,
+    "html_doc_loading_ms": 1282.2805419999986,
+    "total_ms": 4068.2,
+    "tokens": 218390
+  },
+  {
+    "nom": "READ-STREAMING/SPACE-CALC/JS",
+    "spacy_analyse_loading_ms": 53.3,
+    "tokens_fullfillment_ms": 24,
+    "html_building_ms": 2952.1,
+    "html_doc_loading_ms": 1750.0088750000032,
+    "total_ms": 4779.5,
+    "tokens": 218390
+  }
+]

@@ -55,15 +55,6 @@ function generateStressText(totalWords, wordsPerPara) {
 
 let fullText = generateStressText(2400, 50);
 
-function OwnSpecialValues(){
-  var tokens = buildTokens(fullText);
-  tokens.forEach(t => {
-    if (Math.random() < 0.75) t.before = 100 + Math.floor(Math.random() * 2000);
-    if (Math.random() < 0.75) t.after  = 100 + Math.floor(Math.random() * 2000);
-  });
-  return tokens;
-}
-
 const pageEl    = document.getElementById('page');
 const textEl    = document.getElementById('text');
 const cursorEl  = document.getElementById('fake-cursor');
@@ -396,64 +387,33 @@ function buildTokens(text) {
   return tokens;
 }
 
-const TOKENS = OwnSpecialValues()
+const TOKENS = buildTokens(fullText);
 
-function computeBadges() {
-  const byStart = new Map(); // offset du mot -> { canon, before, after }
-  TEST_PAIRS.forEach(({ canon, offset_a, offset_b, distance }) => {
-    const a = byStart.get(offset_a) || { canon };
+// Distances réelles (proximités lexicales), reçues de Python via window.pywebview.api.analyze —
+// remplace l'ancien tirage au hasard. TOKENS garde before/after à null tant que la réponse n'est
+// pas arrivée (placeWordAt gère déjà before/after === null : pas de badge affiché).
+function requestAnalysis(text) {
+  if (!(window.pywebview && window.pywebview.api)) return;
+  window.pywebview.api.analyze(text).then(reps => applyRepetitions(reps));
+}
+
+function applyRepetitions(reps) {
+  const byOffset = new Map(); // offset du mot -> { before, after }
+  reps.forEach(({ offset_a, offset_b, distance }) => {
+    const a = byOffset.get(offset_a) || {};
     a.after = distance;
-    byStart.set(offset_a, a);
-    const b = byStart.get(offset_b) || { canon };
+    byOffset.set(offset_a, a);
+    const b = byOffset.get(offset_b) || {};
     b.before = distance;
-    byStart.set(offset_b, b);
+    byOffset.set(offset_b, b);
   });
-  const result = [];
-  wordSegments().forEach(w => {
-    const entry = byStart.get(w.start);
-    if (!entry) return;
-    result.push({ word: w, canon: entry.canon, before: entry.before ?? null, after: entry.after ?? null });
+  TOKENS.forEach(t => {
+    const entry = byOffset.get(t.offset);
+    t.before = entry ? (entry.before ?? null) : null;
+    t.after  = entry ? (entry.after  ?? null) : null;
   });
-  return result;
-}
-
-// GAP (badges.adoc) : largeur d'un "e" dans la police courante, mesurée via canvas.
-function measureGap() {
-  const sample = document.querySelector('.word');
-  if (!sample) return 6;
-  const style = getComputedStyle(sample);
-  const canvas = measureGap._canvas || (measureGap._canvas = document.createElement('canvas'));
-  const ctx = canvas.getContext('2d');
-  ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-  return ctx.measureText('e').width;
-}
-
-function renderBadges() {
-  badgeLayer.innerHTML = '';
-  const pageRect = pageEl.getBoundingClientRect();
-  const gap = measureGap();
-  computeBadges().forEach(({ word, before, after }) => {
-    const r = word.node.getBoundingClientRect();
-    const top = r.bottom - pageRect.top + 2;
-    const centerX = r.left + r.width / 2 - pageRect.left;
-    if (before !== null) {
-      const badge = document.createElement('div');
-      badge.className = 'badge';
-      badge.textContent = before;
-      badgeLayer.appendChild(badge);
-      const w = badge.getBoundingClientRect().width;
-      badge.style.left = (centerX - gap / 2 - w) + 'px';
-      badge.style.top  = top + 'px';
-    }
-    if (after !== null) {
-      const badge = document.createElement('div');
-      badge.className = 'badge';
-      badge.textContent = after;
-      badge.style.left = (centerX + gap / 2) + 'px';
-      badge.style.top  = top + 'px';
-      badgeLayer.appendChild(badge);
-    }
-  });
+  rebuildDOM();
+  setCursor(cursorIdx, false);
 }
 
 function segmentAt(idx) {
@@ -912,3 +872,9 @@ document.addEventListener('keydown', e => {
 rebuildDOM();
 setCursor(0, false);
 hiddenInput.focus();
+
+if (window.pywebview && window.pywebview.api) {
+  requestAnalysis(fullText);
+} else {
+  window.addEventListener('pywebviewready', () => requestAnalysis(fullText));
+}

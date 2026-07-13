@@ -1,0 +1,62 @@
+[
+  {
+    "nom": "READ-FULL-TEXT/SPLIT-SPACE/PY",
+    "spacy_analyse_loading_ms": 75.7,
+    "tokens_fullfillment_ms": 95.7,
+    "html_building_ms": 28.6,
+    "tokens": 174771,
+    "html_chars": 6422113,
+    "html_doc_loading_ms": 1603.5,
+    "total_ms": 1803.5
+  },
+  {
+    "nom": "READ-FULL-TEXT/SPACE-CSS/PY",
+    "spacy_analyse_loading_ms": 117.8,
+    "tokens_fullfillment_ms": 24.3,
+    "html_building_ms": 32.8,
+    "tokens": 218390,
+    "html_chars": 9755457,
+    "html_doc_loading_ms": 1060.5,
+    "total_ms": 1235.4
+  },
+  {
+    "nom": "READ-FULL-TEXT/SPACE-CALC/PY",
+    "spacy_analyse_loading_ms": 100.4,
+    "tokens_fullfillment_ms": 23.8,
+    "html_building_ms": 31.1,
+    "tokens": 218390,
+    "html_chars": 7523945,
+    "html_doc_loading_ms": 1086.4,
+    "total_ms": 1241.7
+  },
+  {
+    "nom": "READ-STREAMING/SPLIT-SPACE/PY",
+    "spacy_analyse_loading_ms": 106.2,
+    "tokens_fullfillment_ms": 99.6,
+    "html_building_ms": 26.7,
+    "tokens": 174771,
+    "html_chars": 6422113,
+    "html_doc_loading_ms": 1034.9,
+    "total_ms": 1267.4
+  },
+  {
+    "nom": "READ-STREAMING/SPACE-CSS/PY",
+    "spacy_analyse_loading_ms": 97.8,
+    "tokens_fullfillment_ms": 24.9,
+    "html_building_ms": 33.0,
+    "tokens": 218390,
+    "html_chars": 9755457,
+    "html_doc_loading_ms": 982.9,
+    "total_ms": 1138.6
+  },
+  {
+    "nom": "READ-STREAMING/SPACE-CALC/PY",
+    "spacy_analyse_loading_ms": 100.6,
+    "tokens_fullfillment_ms": 41.6,
+    "html_building_ms": 29.8,
+    "tokens": 218390,
+    "html_chars": 7523945,
+    "html_doc_loading_ms": 1076.1,
+    "total_ms": 1248.1
+  }
+]

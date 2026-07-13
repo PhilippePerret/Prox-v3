@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test — curseur au clic</title>
+<link rel="stylesheet" href="test.css">
+</head>
+<body>
+
+<div id="page" tabindex="0">
+  <div id="sel-layer"></div>
+  <div id="text"></div>
+  <div id="badge-layer"></div>
+  <div id="fake-cursor"></div>
+</div>
+<input id="hidden-input" type="text">
+
+<div id="info">Clique quelque part dans le texte.</div>
+
+<script src="test.js"></script>
+</body>
+</html>

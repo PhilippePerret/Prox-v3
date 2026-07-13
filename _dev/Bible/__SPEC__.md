@@ -33,6 +33,7 @@ Stack décidé (session 2026-06-16) — voir `../dev/Claude/01-fondations.md` po
 | Parsing .odt | odfpy |
 | Parsing .docx | python-docx |
 | Poids / profils | YAML/JSON |
+| DOM-editor (rendu HTML spans+badges) | Python, pas de JS/jsdom — **décidé le 2026-07-13**, cf. `_dev/bench-offsets/report.html` |
 
 
 
@@ -42,7 +43,12 @@ Stack décidé (session 2026-06-16) — voir `../dev/Claude/01-fondations.md` po
 
 - Pouvoir travailler avec un texe provenant de LibreOffice (extension LibreOffice ?). Pouvoir travailler un texte stylisé, formaté à base de style, en tout cas, comme Word ou LibreOffice.
 - Pouvoir traiter des textes immenses sans difficulté,
-- concentration (cache) sur quatre pages maximum (= 6000 caractères / 600 mots)
+- **L'app NE FAIT JAMAIS l'analyse de tout le texte d'un coup au chargement.** Affichage le plus vite possible de la page, indépendamment de la taille du roman.
+- concentration (cache) sur quatre pages maximum (= 6000 caractères / 600 mots, valeur approximative) :
+  - **Première ouverture** : depuis la position 0 du fichier — pas de portion cachée avant, on commence directement sur la page gauche.
+  - **Ouvertures suivantes** : ~2000 caractères avant la position enregistrée, ~4000 après.
+  - Découpage détaillé de la fenêtre de 6000 caractères : 1500 caractères cachés avant (non affichés, utiles uniquement pour le calcul des proximités) + 1500 affichés = page gauche + 1500 affichés = page droite + 1500 caractères cachés après (proximités + cache de la suite).
+- **Analyse complète en tâche de fond** : pendant que l'utilisateur ne fait rien, l'analyse continue pour tenir à jour une base contenant l'analyse complète du texte. Au rechargement, l'analyse complète est relue depuis cette base au lieu d'être recommencée. Seules les portions affichées peuvent être modifiées dans la base.
 - édition avec effet immédiat : on remplace/modifie un mot, l’application alerte immédiatement sur les répétitions,
 - édition complexe ne se limitant pas à remplacer un mot par un autre : possibilité de supprimer plusieurs mots à un endroit et d’en ajouter plusieurs à un autre,
 - poids différents suivant les mots,

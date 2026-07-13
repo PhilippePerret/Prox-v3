@@ -1,0 +1,8 @@
+{
+  "name": "bench-offsets",
+  "private": true,
+  "description": "Dossier isolé — dépendance jsdom nécessaire uniquement pour construire de vrais spans DOM dans bench.js (rien à voir avec l'app).",
+  "dependencies": {
+    "jsdom": "^29.1.1"
+  }
+}
