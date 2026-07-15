@@ -32,35 +32,30 @@ function scheduleHiddenInputClear() {
 }
 
 
-// Essai grandeur nature : ~2400 mots (équivalent 3 pages de ~800 mots), badges aléatoires,
-// au moins 1000 badges par tranche de 800 mots (avant/après tirés à 75% chacun, indépendamment).
-// Découpé en paragraphes (un saut de ligne tous les ~50 mots) pour que le navigateur n'ait à
-// recalculer la mise en page que du paragraphe touché par une frappe, pas du document entier.
-function generateStressText(totalWords, wordsPerPara) {
-  const pool = ["maison","texte","proximite","badge","mot","phrase","ligne","page","curseur","exemple",
-    "analyse","distance","canon","forme","repetition","lecture","ecriture","fenetre","fonction",
-    "variable","boucle","tableau","objet","valeur","position","largeur","hauteur","couleur","rapide","lent"];
-  const paras = [];
-  let remaining = totalWords;
-  while (remaining > 0) {
-    const n = Math.min(wordsPerPara, remaining);
-    const words = [];
-    for (let i = 0; i < n; i++) words.push(pool[Math.floor(Math.random() * pool.length)]);
-    paras.push(words.join(' ') + '.');
-    remaining -= n;
-  }
-  paras[0] = 'Ceci ' + paras[0];
-  return paras.join('\n');
-}
+// fullText : portion VISIBLE/éditable seulement (2 pages, 3000 caractères — cf. __SPEC__.md).
+// hiddenTail : 3000 caractères supplémentaires après, jamais affichés ni éditables, envoyés à
+// analyze() en plus de fullText pour que les proximités avec la suite du texte soient détectées.
+let fullText = '';
+let hiddenTail = '';
 
-let fullText = generateStressText(2400, 50);
+const infoEl = document.getElementById('info');
 
-const pageEl    = document.getElementById('page');
-const textEl    = document.getElementById('text');
-const cursorEl  = document.getElementById('fake-cursor');
-const infoEl    = document.getElementById('info');
-const selLayer  = document.getElementById('sel-layer');
-const badgeLayer = document.getElementById('badge-layer');
+// PAGES : les deux conteneurs visuels gauche/droite. Un paragraphe entier de fullText est toujours
+// rendu dans l'un OU l'autre, jamais coupé en deux — cf. computeSplitParaIndex. Le curseur/la
+// sélection se dessinent dans les calques (badge-layer, sel-layer, fake-cursor) de la page qui
+// contient l'index concerné.
+const PAGES = ['left', 'right'].map(side => {
+  const pageEl = document.querySelector(`.page[data-side="${side}"]`);
+  return {
+    side,
+    pageEl,
+    textEl:     pageEl.querySelector('.text'),
+    badgeLayer: pageEl.querySelector('.badge-layer'),
+    selLayer:   pageEl.querySelector('.sel-layer'),
+    cursorEl:   pageEl.querySelector('.fake-cursor'),
+  };
+});
+const [PAGE_LEFT, PAGE_RIGHT] = PAGES;
 
 // ── segments : la liste, dans l'ordre, de chaque unité du DOM (mot, espace, ou retour à la
 // ligne) avec sa plage [start, end) dans fullText — traduit un index de caractère en (noeud,
@@ -73,11 +68,16 @@ let segments = [];
 // autres paragraphes, ni leurs badges), au lieu de tout redétruire à chaque frappe.
 let paraStates = []; // [{ paraEl, wordState: [{span, spaceEl, beforeEl, afterEl, text, naturalX, _badgeXAfter}] }]
 
-function placeWordAt(paraEl, span, w, start, badgeXIn, prevTopIn, token) {
+function placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, pageRect, rightLimit) {
   // Place un mot (span déjà dans le DOM) : badge avant, décalage, badge après, retour à la ligne
   // forcé si besoin. Retourne { badgeX, prevTop } à transmettre au mot suivant.
-  const pageRect = pageEl.getBoundingClientRect();
-  const rightLimit = pageEl.clientWidth - parseFloat(getComputedStyle(pageEl).paddingRight);
+  // rightLimit est la largeur de LA PAGE qui porte ce paragraphe (page.pageEl), pas une largeur
+  // globale — chaque page gauche/droite a sa propre limite de ligne.
+  // pageRect/rightLimit calculés UNE FOIS par appelant (syncParagraph), pas ici : le conteneur
+  // .page ne bouge pas pendant qu'on place les mots un par un — recalculer sa geometrie à chaque
+  // mot (getBoundingClientRect + getComputedStyle, 2 layouts forcés) est un recalcul identique
+  // répété inutilement à chaque mot (531 fois sur le texte de test).
+  const badgeLayer = page.badgeLayer;
   let badgeX = badgeXIn, prevTop = prevTopIn;
   let r, wordX, naturalWidth, beforeBadgeEl = null, afterBadgeEl = null, actualX = 0;
 
@@ -137,7 +137,8 @@ function placeWordAt(paraEl, span, w, start, badgeXIn, prevTopIn, token) {
 // Construit/retouche les mots d'UN SEUL paragraphe. oldWordState === null (ou nombre de mots
 // différent) => reconstruction complète de ce paragraphe (mais des autres). Sinon, ne retouche
 // qu'à partir du premier mot changé, jusqu'à ce qu'un mot retrouve exactement sa position d'avant.
-function syncParagraph(paraEl, oldWordState, words, tokenIdxStart) {
+function syncParagraph(page, paraEl, oldWordState, words, tokenIdxStart, force) {
+  const badgeLayer = page.badgeLayer;
   const isFull = !oldWordState || oldWordState.length !== words.length;
   let wordState;
   let startIdx = 0;
@@ -151,9 +152,16 @@ function syncParagraph(paraEl, oldWordState, words, tokenIdxStart) {
     wordState = [];
   } else {
     wordState = oldWordState;
-    while (startIdx < words.length && wordState[startIdx].text === words[startIdx]) startIdx++;
-    if (startIdx === words.length) return wordState; // ce paragraphe n'a pas changé
+    if (!force) {
+      while (startIdx < words.length && wordState[startIdx].text === words[startIdx]) startIdx++;
+      if (startIdx === words.length) return wordState; // ce paragraphe n'a pas changé
+    }
   }
+
+  // Geometrie de LA page (fixe pendant toute cette passe) : calculée une seule fois ici, transmise
+  // à chaque placeWordAt au lieu d'être relue à chaque mot.
+  const pageRect = page.pageEl.getBoundingClientRect();
+  const rightLimit = page.pageEl.clientWidth - parseFloat(getComputedStyle(page.pageEl).paddingRight);
 
   let tokenIdx = tokenIdxStart + startIdx;
   var badgeX = startIdx > 0 ? (wordState[startIdx - 1]._badgeXAfter || 0) : 0;
@@ -180,8 +188,8 @@ function syncParagraph(paraEl, oldWordState, words, tokenIdxStart) {
     if (st.afterEl)  { badgeLayer.removeChild(st.afterEl);  st.afterEl  = null; }
 
     const token = TOKENS[tokenIdx++];
-    const placed = placeWordAt(paraEl, span, w, 0, badgeX, prevTop, token);
-    const stabilized = !isFull && !textChanged && Math.round(placed.naturalX) === Math.round(st.naturalX);
+    const placed = placeWordAt(page, paraEl, span, w, 0, badgeX, prevTop, token, pageRect, rightLimit);
+    const stabilized = !isFull && !force && !textChanged && Math.round(placed.naturalX) === Math.round(st.naturalX);
     badgeX = placed.badgeX;
     prevTop = placed.prevTop;
     st.naturalX = placed.naturalX;
@@ -201,36 +209,63 @@ function syncParagraph(paraEl, oldWordState, words, tokenIdxStart) {
   return wordState;
 }
 
-function rebuildDOM() {
-  const paragraphs = fullText.split('\n');
+// Paragraphe (index 0-based, dans fullText.split('\n')) après lequel on bascule de la page gauche
+// à la page droite. Choisi comme la frontière de paragraphe la plus proche du milieu de fullText —
+// jamais un paragraphe coupé en deux entre les pages (cf. décision utilisateur 2026-07-14 : jamais
+// de mot coupé, ici étendu au paragraphe pour ne pas fragmenter un seul paraEl entre deux DOM
+// distincts). Un seul paragraphe total => tout à gauche, page droite vide.
+function computeSplitParaIndex(paragraphs) {
+  if (paragraphs.length <= 1) return paragraphs.length;
+  const target = Math.floor(fullText.length / 2);
+  let pos = 0, bestIdx = paragraphs.length, bestDist = Infinity;
+  for (let i = 0; i < paragraphs.length; i++) {
+    pos += paragraphs[i].length;
+    const dist = Math.abs(pos - target);
+    if (dist < bestDist) { bestDist = dist; bestIdx = i + 1; }
+    pos += 1; // le \n
+  }
+  return bestIdx;
+}
 
-  if (paraStates.length !== paragraphs.length) {
-    // nombre de paragraphes différent (premier chargement, ou Entrée) : reconstruction complète,
-    // mais paragraphe par paragraphe (chacun son propre bloc, indépendant des autres).
-    textEl.innerHTML = '';
-    badgeLayer.innerHTML = '';
+function pageForParaIndex(pi, splitIdx) { return pi < splitIdx ? PAGE_LEFT : PAGE_RIGHT; }
+
+// force=true : retouche TOUS les paragraphes même si leur texte n'a pas changé — nécessaire après
+// applyRepetitions, qui modifie les données de badge (TOKENS[i].before/after) sans jamais toucher
+// fullText ; sans ce forçage, le test "texte inchangé => rien à refaire" saute silencieusement le
+// placement des badges tant qu'aucune frappe n'a eu lieu sur le paragraphe concerné.
+function rebuildDOM(force) {
+  const paragraphs = fullText.split('\n');
+  const splitIdx = computeSplitParaIndex(paragraphs);
+  const sideChanged = paraStates.length === paragraphs.length &&
+    paraStates.some((ps, pi) => ps.page !== pageForParaIndex(pi, splitIdx));
+
+  if (paraStates.length !== paragraphs.length || sideChanged) {
+    // nombre de paragraphes différent (premier chargement, Entrée) OU la frontière gauche/droite
+    // a bougé (édition qui déplace le milieu de fullText) : reconstruction complète des DEUX pages.
+    PAGE_LEFT.textEl.innerHTML = '';   PAGE_LEFT.badgeLayer.innerHTML = '';
+    PAGE_RIGHT.textEl.innerHTML = '';  PAGE_RIGHT.badgeLayer.innerHTML = '';
     paraStates = [];
     let tokenIdx = 0;
-    paragraphs.forEach(paraText => {
+    paragraphs.forEach((paraText, pi) => {
+      const page = pageForParaIndex(pi, splitIdx);
       const paraEl = document.createElement('div');
       paraEl.className = 'para';
-      textEl.appendChild(paraEl);
+      page.textEl.appendChild(paraEl);
       const words = paraText.split(' ');
-      const wordState = syncParagraph(paraEl, null, words, tokenIdx);
-      paraStates.push({ paraEl, wordState });
+      const wordState = syncParagraph(page, paraEl, null, words, tokenIdx);
+      paraStates.push({ paraEl, wordState, page });
       tokenIdx += words.length;
     });
   } else {
-    // même nombre de paragraphes : ne retoucher que celui qui a changé — les autres, et leurs
-    // badges, restent intacts (aucune mesure, aucune reconstruction, aucun recalcul de mise en
-    // page pour eux).
+    // même nombre de paragraphes, même répartition gauche/droite : ne retoucher que celui qui a
+    // changé — les autres, et leurs badges, restent intacts (aucune mesure, aucune reconstruction).
     let tokenIdx = 0;
     for (let pi = 0; pi < paragraphs.length; pi++) {
       const words = paragraphs[pi].split(' ');
       const ps = paraStates[pi];
       const currentText = ps.wordState.map(st => st.text).join(' ');
-      if (currentText !== paragraphs[pi]) {
-        ps.wordState = syncParagraph(ps.paraEl, ps.wordState, words, tokenIdx);
+      if (force || currentText !== paragraphs[pi]) {
+        ps.wordState = syncParagraph(ps.page, ps.paraEl, ps.wordState, words, tokenIdx, force);
       }
       tokenIdx += words.length;
     }
@@ -287,6 +322,7 @@ function quickSyncParagraph(ps, words) {
 
   // Nombre de mots différent (espace tapé/supprimé) : reconstruction structurelle de ce seul
   // paragraphe, spans + espaces texte nus, sans badge ni marge — le placement arrive plus tard.
+  const badgeLayer = ps.page.badgeLayer;
   wordState.forEach(st => {
     if (st.beforeEl) badgeLayer.removeChild(st.beforeEl);
     if (st.afterEl)  badgeLayer.removeChild(st.afterEl);
@@ -327,12 +363,15 @@ function quickSyncParagraphCount() {
 
   if (newCount === oldCount + 1) {
     // scission : cursorIdx est juste après le \n inséré, donc au tout début du second morceau.
+    // Le nouveau paragraphe hérite provisoirement de la page de son voisin — corrigé, si besoin,
+    // par le prochain rebuildDOM (seul endroit qui recalcule la frontière gauche/droite).
     const pi = paragraphIndexAt(cursorIdx) - 1;
+    const page = paraStates[pi].page;
     quickSyncParagraph(paraStates[pi], paragraphs[pi].split(' '));
     const newParaEl = document.createElement('div');
     newParaEl.className = 'para';
-    textEl.insertBefore(newParaEl, paraStates[pi].paraEl.nextSibling);
-    const newPs = { paraEl: newParaEl, wordState: [] };
+    page.textEl.insertBefore(newParaEl, paraStates[pi].paraEl.nextSibling);
+    const newPs = { paraEl: newParaEl, wordState: [], page };
     quickSyncParagraph(newPs, paragraphs[pi + 1].split(' '));
     paraStates.splice(pi + 1, 0, newPs);
     return false;
@@ -341,10 +380,11 @@ function quickSyncParagraphCount() {
   if (newCount === oldCount - 1) {
     // fusion : cursorIdx est dans le paragraphe résultant ; celui d'après disparaît.
     const pi = paragraphIndexAt(cursorIdx);
-    textEl.removeChild(paraStates[pi + 1].paraEl);
-    paraStates[pi + 1].wordState.forEach(st => {
-      if (st.beforeEl) badgeLayer.removeChild(st.beforeEl);
-      if (st.afterEl)  badgeLayer.removeChild(st.afterEl);
+    const removed = paraStates[pi + 1];
+    removed.page.textEl.removeChild(removed.paraEl);
+    removed.wordState.forEach(st => {
+      if (st.beforeEl) removed.page.badgeLayer.removeChild(st.beforeEl);
+      if (st.afterEl)  removed.page.badgeLayer.removeChild(st.afterEl);
     });
     paraStates.splice(pi + 1, 1);
     quickSyncParagraph(paraStates[pi], paragraphs[pi].split(' '));
@@ -370,31 +410,79 @@ function quickSync() {
   return false;
 }
 
-// Test badges : générée automatiquement à partir de fullText, avant/après forcés par index
-// ensuite — sera remplacée par l'analyse Python réelle.
+// Squelette des tokens de la portion VISIBLE (offsets, découpage mots) — before/after (distances)
+// remplis ensuite par applyRepetitions() une fois la réponse spaCy reçue.
 function buildTokens(text) {
   const tokens = [];
   let i = 0;
   let offset = 0;
   text.split('\n').forEach((paraText, pi) => {
-    paraText.split(' ').forEach(forme => {
+    const words = paraText.split(' ');
+    words.forEach((forme, wi) => {
       tokens.push({ i, forme, canon: forme.toLowerCase(), offset, before: null, after: null });
-      offset += forme.length + 1;
+      offset += forme.length;
+      if (wi < words.length - 1) offset += 1; // espace entre mots du paragraphe
       i++;
     });
-    offset += 1; // le caractère de saut de ligne lui-même
+    offset += 1; // le caractère de saut de ligne lui-même (jamais un espace après le dernier mot)
   });
   return tokens;
 }
 
-const TOKENS = buildTokens(fullText);
+let TOKENS = buildTokens(fullText);
 
-// Distances réelles (proximités lexicales), reçues de Python via window.pywebview.api.analyze —
-// remplace l'ancien tirage au hasard. TOKENS garde before/after à null tant que la réponse n'est
-// pas arrivée (placeWordAt gère déjà before/after === null : pas de badge affiché).
+// Distances réelles (proximités lexicales), reçues de Python via window.pywebview.api.analyze.
+// `text` = fullText + hiddenTail : la portion cachée après compte pour détecter les proximités
+// mais ne produit jamais de token/span affiché (TOKENS ne couvre que la portion visible).
+// Horodatage réel (ms depuis le chargement de la page) sur chaque ligne de log — sert à repérer
+// OÙ se situe un délai (attente IPC pywebview, promesse analyze(), boucle DOM synchrone...) sans
+// avoir à deviner à partir du seul ordre des lignes.
+function dlog(msg) {
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.debug_log(`[${performance.now().toFixed(0)}ms] ${msg}`);
+  }
+}
+
+function logError(context, err) {
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.debug_log(`ERROR in ${context}: ${(err && err.stack) || err}`);
+  }
+}
+
 function requestAnalysis(text) {
+  dlog(`requestAnalysis appelé, text.length=${text.length}`);
+  if (!(window.pywebview && window.pywebview.api)) { dlog('requestAnalysis: pas de window.pywebview.api'); return; }
+  let promise;
+  try {
+    dlog('requestAnalysis: appel window.pywebview.api.analyze() en cours');
+    promise = window.pywebview.api.analyze(text);
+    dlog(`requestAnalysis: appel lancé, type retour=${typeof promise}, isPromise=${promise && typeof promise.then === 'function'}`);
+  } catch (err) {
+    logError('analyze (appel synchrone)', err);
+    return;
+  }
+  promise
+    .then(reps => {
+      dlog(`analyze resolu, reps.length=${reps.length}`);
+      try { applyRepetitions(reps); } catch (err) { logError('applyRepetitions', err); }
+    })
+    .catch(err => logError('analyze', err));
+}
+
+// Chargement spaCy = thread séparé côté Python, quelques secondes. Interroge is_model_ready()
+// toutes les secondes (splash affiché pendant ce temps, cf. reveal()) ; une fois prêt, lance la
+// première analyse et arrête le polling.
+function pollModelReady() {
   if (!(window.pywebview && window.pywebview.api)) return;
-  window.pywebview.api.analyze(text).then(reps => applyRepetitions(reps));
+  const timer = setInterval(() => {
+    window.pywebview.api.is_model_ready().then(ready => {
+      dlog(`is_model_ready=${ready}`);
+      if (ready) {
+        clearInterval(timer);
+        requestAnalysis(fullText + hiddenTail);
+      }
+    });
+  }, 1000);
 }
 
 function applyRepetitions(reps) {
@@ -407,13 +495,43 @@ function applyRepetitions(reps) {
     b.before = distance;
     byOffset.set(offset_b, b);
   });
-  TOKENS.forEach(t => {
-    const entry = byOffset.get(t.offset);
-    t.before = entry ? (entry.before ?? null) : null;
-    t.after  = entry ? (entry.after  ?? null) : null;
+  TOKENS.forEach(t => { t.before = null; t.after = null; });
+  // TOKENS trié par offset croissant : recherche du token qui CONTIENT chaque offset spaCy, pas
+  // égalité stricte — un mot élidé ("j'ai") est un seul token JS (span entier) mais spaCy le
+  // scinde en "j'" + "ai" ; l'offset spaCy de "ai" tombe alors À L'INTÉRIEUR du token JS "j'ai",
+  // pas sur son offset de départ.
+  byOffset.forEach((entry, pyOffset) => {
+    let lo = 0, hi = TOKENS.length - 1, found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (TOKENS[mid].offset <= pyOffset) { found = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    if (found === -1) return;
+    const t = TOKENS[found];
+    if (pyOffset >= t.offset + t.forme.length) return; // tombe hors mot (espace/saut de ligne)
+    if ('before' in entry) t.before = entry.before;
+    if ('after'  in entry) t.after  = entry.after;
   });
-  rebuildDOM();
+  const matched = TOKENS.filter(t => t.before !== null || t.after !== null).length;
+  dlog(`applyRepetitions: TOKENS.length=${TOKENS.length}, byOffset.size=${byOffset.size}, matched=${matched}`);
+  rebuildDOM(true);
+  const nbBadges = PAGE_LEFT.badgeLayer.children.length + PAGE_RIGHT.badgeLayer.children.length;
+  dlog(`applyRepetitions: badges dans le DOM apres rebuildDOM = ${nbBadges}`);
   setCursor(cursorIdx, false);
+  reveal();
+}
+
+// Bascule splash -> page une seule fois, la première fois que texte ET badges sont prêts
+// ensemble (paraStates vide => tout premier passage de rebuildDOM(true) ci-dessus, qui a
+// construit la page en entier vu qu'aucun paraState n'existait encore).
+let revealed = false;
+function reveal() {
+  if (revealed) return;
+  revealed = true;
+  document.getElementById('splash').classList.add('hidden');
+  document.getElementById('pages').classList.remove('hidden');
+  hiddenInput.focus();
 }
 
 function segmentAt(idx) {
@@ -423,9 +541,14 @@ function segmentAt(idx) {
   return segments[segments.length - 1];
 }
 
+// Nœud à mesurer pour un segment-mot : son texte, ou le span lui-même s'il est vide (mot ""
+// produit par split(' ') sur un double espace — span sans firstChild, sinon getCaretRect plante
+// sur node.nodeType).
+function wordNode(seg) { return seg.node.firstChild || seg.node; }
+
 function charIndexToDom(idx) {
   const seg = segmentAt(idx);
-  const node = seg.isWord ? seg.node.firstChild : seg.node;
+  const node = seg.isWord ? wordNode(seg) : seg.node;
   return { node, offset: idx - seg.start };
 }
 
@@ -481,18 +604,18 @@ function rectForIndex(idx) {
   const breakSeg = segments.find(s => s.isBreak && s.start === idx);
   if (breakSeg) {
     const w = nearestWord(segments.indexOf(breakSeg) - 1, -1);
-    if (w) return getCaretRect(w.node.firstChild, w.end - w.start);
+    if (w) return getCaretRect(wordNode(w), w.end - w.start);
   }
   const seg = segmentAt(idx);
   if (!seg.isWord) {
     const segIdx = segments.indexOf(seg);
     if (idx === seg.end) {
       const w = nearestWord(segIdx + 1, 1);
-      if (w) return getCaretRect(w.node.firstChild, 0);
+      if (w) return getCaretRect(wordNode(w), 0);
     }
     if (idx === seg.start) {
       const w = nearestWord(segIdx - 1, -1);
-      if (w) return getCaretRect(w.node.firstChild, w.end - w.start);
+      if (w) return getCaretRect(wordNode(w), w.end - w.start);
     }
   }
   const { node, offset } = charIndexToDom(idx);
@@ -553,9 +676,19 @@ function indexAtPoint(x, y) {
   return domToCharIndex(range.startContainer, range.startOffset);
 }
 
+// Page qui porte l'index donné (celle du paraState du paragraphe contenant idx).
+function pageForIdx(idx) {
+  const pi = paragraphIndexAt(idx);
+  const ps = paraStates[pi];
+  return ps ? ps.page : PAGE_LEFT;
+}
+
 function renderCursor() {
   const rect     = rectForIndex(cursorIdx);
-  const pageRect = pageEl.getBoundingClientRect();
+  const page     = pageForIdx(cursorIdx);
+  const pageRect = page.pageEl.getBoundingClientRect();
+  PAGES.forEach(p => { if (p !== page) p.cursorEl.style.display = 'none'; });
+  const cursorEl = page.cursorEl;
   cursorEl.style.display = (anchorIdx !== null && anchorIdx !== cursorIdx) ? 'none' : 'block';
   cursorEl.style.left    = (rect.left - pageRect.left) + 'px';
   cursorEl.style.top     = (rect.top  - pageRect.top)  + 'px';
@@ -570,7 +703,7 @@ function renderCursor() {
 }
 
 function renderSelection() {
-  selLayer.innerHTML = '';
+  PAGES.forEach(p => { p.selLayer.innerHTML = ''; });
   if (anchorIdx === null || anchorIdx === cursorIdx) return;
   const from = Math.min(anchorIdx, cursorIdx);
   const to   = Math.max(anchorIdx, cursorIdx);
@@ -578,15 +711,22 @@ function renderSelection() {
   const range = document.createRange();
   range.setStart(a.node, a.offset);
   range.setEnd(b.node, b.offset);
-  const pageRect = pageEl.getBoundingClientRect();
+  // La sélection peut chevaucher les deux pages (ancre à gauche, curseur à droite) : chaque
+  // rectangle de la Range est routé vers la page qu'il recouvre horizontalement, pas vers une
+  // page unique fixe.
   Array.from(range.getClientRects()).forEach(r => {
+    const page = PAGES.find(p => {
+      const pr = p.pageEl.getBoundingClientRect();
+      return r.left >= pr.left - 1 && r.left < pr.right + 1;
+    }) || PAGE_LEFT;
+    const pageRect = page.pageEl.getBoundingClientRect();
     const box = document.createElement('div');
     box.className = 'sel-box';
     box.style.left   = (r.left   - pageRect.left) + 'px';
     box.style.top    = (r.top    - pageRect.top)  + 'px';
     box.style.width  = r.width  + 'px';
     box.style.height = r.height + 'px';
-    selLayer.appendChild(box);
+    page.selLayer.appendChild(box);
   });
 }
 
@@ -610,7 +750,7 @@ function logCursor() {
   if (!(window.pywebview && window.pywebview.api)) return;
   const rect    = rectForIndex(cursorIdx);
   const around  = JSON.stringify(fullText.slice(Math.max(0, cursorIdx - 8), cursorIdx) + '|' + fullText.slice(cursorIdx, cursorIdx + 8));
-  const pageRect = pageEl.getBoundingClientRect();
+  const pageRect = pageForIdx(cursorIdx).pageEl.getBoundingClientRect();
   window.pywebview.api.debug_log(
     `idx=${cursorIdx} autour=${around} rect(left=${Math.round(rect.left - pageRect.left)},top=${Math.round(rect.top - pageRect.top)},bottom=${Math.round(rect.bottom - pageRect.top)}) anchor=${anchorIdx}`
   );
@@ -624,7 +764,7 @@ function lineBoundsAt(idx) {
   const top = rectForIndex(idx).top;
   let from = null, to = null;
   wordSegments().forEach(s => {
-    const r = getCaretRect(s.node.firstChild, 0);
+    const r = getCaretRect(wordNode(s), 0);
     if (Math.abs(r.top - top) < 3) {
       if (from === null) from = s.start;
       to = s.end;
@@ -637,7 +777,7 @@ function lineBoundsAt(idx) {
 function lineBoundsAtTop(top) {
   let from = null, to = null;
   wordSegments().forEach(s => {
-    const r = getCaretRect(s.node.firstChild, 0);
+    const r = getCaretRect(wordNode(s), 0);
     if (Math.abs(r.top - top) < 3) {
       if (from === null) from = s.start;
       to = s.end;
@@ -650,7 +790,7 @@ function lineBoundsAtTop(top) {
 function allLineTops() {
   const tops = [];
   wordSegments().forEach(s => {
-    const r = getCaretRect(s.node.firstChild, 0);
+    const r = getCaretRect(wordNode(s), 0);
     if (!tops.some(t => Math.abs(t - r.top) < 3)) tops.push(r.top);
   });
   return tops.sort((a, b) => a - b);
@@ -761,43 +901,45 @@ function deleteForward() {
 // ── Souris : clic simple, glissé, Maj+clic, double-clic, triple-clic ─────────────────────────
 let lastClick = { time: 0, idx: -1, count: 0 };
 
-textEl.addEventListener('mousedown', e => {
-  hiddenInput.focus();
-  const idx = indexAtPoint(e.clientX, e.clientY);
-  if (idx === null) return;
+PAGES.forEach(page => {
+  page.textEl.addEventListener('mousedown', e => {
+    hiddenInput.focus();
+    const idx = indexAtPoint(e.clientX, e.clientY);
+    if (idx === null) return;
 
-  const now = Date.now();
-  if (now - lastClick.time < 500 && lastClick.idx === idx) lastClick.count++;
-  else lastClick.count = 1;
-  lastClick = { time: now, idx, count: lastClick.count };
+    const now = Date.now();
+    if (now - lastClick.time < 500 && lastClick.idx === idx) lastClick.count++;
+    else lastClick.count = 1;
+    lastClick = { time: now, idx, count: lastClick.count };
 
-  if (e.shiftKey) {
-    if (anchorIdx === null) anchorIdx = cursorIdx;
+    if (e.shiftKey) {
+      if (anchorIdx === null) anchorIdx = cursorIdx;
+      setCursor(idx, true);
+      return;
+    }
+
+    if (lastClick.count === 2) {
+      const seg = segmentAt(idx);
+      if (seg.isWord) { anchorIdx = seg.start; setCursor(seg.end, true); return; }
+    }
+    if (lastClick.count >= 3) {
+      const bounds = lineBoundsAt(idx);
+      anchorIdx = bounds.from;
+      setCursor(bounds.to, true);
+      return;
+    }
+
+    anchorIdx = idx;
+    dragging  = true;
     setCursor(idx, true);
-    return;
-  }
+  });
 
-  if (lastClick.count === 2) {
-    const seg = segmentAt(idx);
-    if (seg.isWord) { anchorIdx = seg.start; setCursor(seg.end, true); return; }
-  }
-  if (lastClick.count >= 3) {
-    const bounds = lineBoundsAt(idx);
-    anchorIdx = bounds.from;
-    setCursor(bounds.to, true);
-    return;
-  }
-
-  anchorIdx = idx;
-  dragging  = true;
-  setCursor(idx, true);
-});
-
-textEl.addEventListener('mousemove', e => {
-  if (!dragging) return;
-  const idx = indexAtPoint(e.clientX, e.clientY);
-  if (idx === null) return;
-  setCursor(idx, true);
+  page.textEl.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const idx = indexAtPoint(e.clientX, e.clientY);
+    if (idx === null) return;
+    setCursor(idx, true);
+  });
 });
 
 document.addEventListener('mouseup', () => { dragging = false; });
@@ -869,12 +1011,22 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Départ ─────────────────────────────────────────────────────────────────────────────────
-rebuildDOM();
-setCursor(0, false);
-hiddenInput.focus();
+// Texte réel (assets/texte-modele.txt via load_window()) — point d'entrée exclusif via
+// `python -m app.test_pywebview` (cf. son docstring), toujours lancé avec pywebview.
+function startWithRealText() {
+  window.pywebview.api.load_window().then(({ texte_complet, fin_visible }) => {
+    fullText   = texte_complet.slice(0, fin_visible);
+    hiddenTail = texte_complet.slice(fin_visible);
+    TOKENS = buildTokens(fullText);
+    // Rien construit/affiché ici : le splash reste visible tant que le modèle spaCy n'est pas
+    // chargé (cf. pollModelReady) — évite de montrer le texte sans badge puis de le voir "sauter"
+    // quand les badges arrivent après coup (décision utilisateur 2026-07-15).
+    pollModelReady();
+  });
+}
 
 if (window.pywebview && window.pywebview.api) {
-  requestAnalysis(fullText);
+  startWithRealText();
 } else {
-  window.addEventListener('pywebviewready', () => requestAnalysis(fullText));
+  window.addEventListener('pywebviewready', startWithRealText);
 }

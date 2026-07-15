@@ -33,7 +33,7 @@ Stack décidé (session 2026-06-16) — voir `../dev/Claude/01-fondations.md` po
 | Parsing .odt | odfpy |
 | Parsing .docx | python-docx |
 | Poids / profils | YAML/JSON |
-| DOM-editor (rendu HTML spans+badges) | Python, pas de JS/jsdom — **décidé le 2026-07-13**, cf. `_dev/bench-offsets/report.html` |
+| DOM-editor (placement mots/badges, édition interactive) | JS (continuité de `app/static/test.js`) — **décidé le 2026-07-13** : `getBoundingClientRect`/`caretRangeFromPoint` n'existent que dans le moteur de rendu, pywebview n'expose côté Python que `evaluate_js`/`run_js` (aucune lecture directe de géométrie DOM). PySide6/Qt natif écarté (retour en arrière, déjà abandonné). Python reste limité à l'analyse spaCy (`ProxEngine.analyze`). |
 
 
 

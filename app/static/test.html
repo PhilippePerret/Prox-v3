@@ -8,11 +8,24 @@
 </head>
 <body>
 
-<div id="page" tabindex="0">
-  <div id="sel-layer"></div>
-  <div id="text"></div>
-  <div id="badge-layer"></div>
-  <div id="fake-cursor"></div>
+<div id="splash">
+  <h1>Proximity</h1>
+  <p>Chargement du modèle de langage…</p>
+</div>
+
+<div id="pages" class="hidden">
+  <div class="page" data-side="left" tabindex="0">
+    <div class="sel-layer"></div>
+    <div class="text"></div>
+    <div class="badge-layer"></div>
+    <div class="fake-cursor"></div>
+  </div>
+  <div class="page" data-side="right" tabindex="0">
+    <div class="sel-layer"></div>
+    <div class="text"></div>
+    <div class="badge-layer"></div>
+    <div class="fake-cursor"></div>
+  </div>
 </div>
 <input id="hidden-input" type="text">
 

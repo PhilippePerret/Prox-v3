@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import webview
 from app.engine import ProxEngine
 from app import config
+from app.spacy_model import load_best_model
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -46,13 +47,7 @@ class ProxAPI:
 
     # ── Chargement spaCy (thread de démarrage) ────────────────────────────────
     def _load_model(self):
-        import spacy
-        for model in ('fr_core_news_lg', 'fr_core_news_md', 'fr_core_news_sm'):
-            try:
-                self._nlp = spacy.load(model, disable=['parser', 'ner'])
-                break
-            except OSError:
-                continue
+        self._nlp = load_best_model()
         if self._nlp is None:
             self._window.evaluate_js("alert('Aucun modèle spaCy trouvé.')")
             return

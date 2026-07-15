@@ -7,10 +7,37 @@ html, body {
   overflow: hidden;
 }
 
-#page {
-  position: relative;
-  background: white;
+#splash {
+  position: fixed; inset: 0;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 999;
+}
+#splash h1 { font-size: 48px; color: #1a1a1a; font-family: Georgia, serif; }
+#splash p  { font-size: 16px; color: #888; font-family: Georgia, serif; }
+#splash.hidden { display: none; }
+
+#pages {
+  display: flex;
+  align-items: flex-start; /* pas de stretch : chaque page garde la hauteur de son contenu */
+  height: calc(100% - 48px);
   margin: 24px;
+  gap: 40px; /* PAGE_GUTTER, cf. app/config.py */
+  overflow: hidden; /* même rôle que le overflow:hidden du body avant le passage à 2 pages */
+}
+/* visibility, pas display:none : #pages doit garder sa boîte de layout pour que placeWordAt
+   mesure des positions réelles (getBoundingClientRect) pendant que le splash le recouvre. */
+#pages.hidden { visibility: hidden; }
+
+.page {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  background: white;
   padding: 48px 60px;
   font-size: 24px;
   line-height: 68px;
@@ -23,15 +50,15 @@ html, body {
 .word { }
 .para { }
 
-#text { position: relative; z-index: 1; }
+.text { position: relative; z-index: 1; }
 
-#sel-layer { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.sel-layer { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
 .sel-box {
   position: absolute;
   background: #bcd6fb;
 }
 
-#badge-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.badge-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .badge {
   position: absolute;
   font-size: 12px;
@@ -51,7 +78,7 @@ html, body {
   top: -2000px;
 }
 
-#fake-cursor {
+.fake-cursor {
   position: absolute;
   width: 2px;
   background: #2244cc;
