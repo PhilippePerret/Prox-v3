@@ -60,7 +60,14 @@ function scheduleHiddenInputClear() {
 let fullText = '';
 let hiddenTail = '';
 
-const infoEl = document.getElementById('info');
+const infoEl = document.getElementById('footer-info');
+
+// Position dans le livre entier (pageline du footer) — connue une seule fois au chargement
+// (load_window() renvoie total_chars/start_offset), pas de navigation pour l'instant donc pas de
+// raison qu'elle change en cours de session (cf. app/static/prox.js d'origine, jamais branché
+// dans test.html jusqu'ici).
+let windowTotalChars  = 0;
+let windowStartOffset = 0;
 
 // PAGES : les deux conteneurs visuels gauche/droite. Un paragraphe entier de fullText est toujours
 // rendu dans l'un OU l'autre, jamais coupé en deux — cf. computeSplitParaIndex. Le curseur/la
@@ -264,6 +271,15 @@ function rebuildDOM(force) {
   const splitIdx = computeSplitParaIndex(paragraphs);
   const sideChanged = paraStates.length === paragraphs.length &&
     paraStates.some((ps, pi) => ps.page !== pageForParaIndex(pi, splitIdx));
+
+  // Nombre de caractères de fullText assignés à chaque page — sert à juger si un zoom (taille de
+  // police) permettrait d'en afficher plus (cf. discussion 2026-07-16, interligne réduit pour
+  // récupérer des paires actuellement hors fenêtre visible).
+  const leftChars  = paragraphs.slice(0, splitIdx).join('\n').length;
+  const rightChars = paragraphs.slice(splitIdx).join('\n').length;
+  const nbMots = TOKENS.length;
+  document.getElementById('footer-stats').textContent =
+    `${nbMots} mots · ${leftChars} + ${rightChars} caractères (g/d)`;
 
   if (paraStates.length !== paragraphs.length || sideChanged) {
     // nombre de paragraphes différent (premier chargement, Entrée) OU la frontière gauche/droite
@@ -509,6 +525,9 @@ function applyProximites(prox) {
   const matched = TOKENS.filter(t => t.before !== null || t.after !== null).length;
   dlog(`applyProximites: TOKENS.length=${TOKENS.length}, byOffset.size=${byOffset.size}, matched=${matched}`);
   rebuildDOM(true);
+  clipOverflowParagraphs();  // AVANT markOrphanBadges : un partenaire caché par la coupure de bas
+                             // de page doit compter comme absent, pas comme présent
+  markOrphanBadges();
   const nbBadges = PAGE_LEFT.badgeLayer.children.length + PAGE_RIGHT.badgeLayer.children.length;
   dlog(`applyProximites: badges dans le DOM apres rebuildDOM = ${nbBadges}`);
   setCursor(cursorIdx, false, true);  // silentPairs : pas de clic réel, ne pas allumer d'exergue
@@ -887,6 +906,7 @@ function scheduleRebuild() {
   rebuildDebounceTimer = setTimeout(() => {
     rebuildDebounceTimer = null;
     rebuildDOM();
+    clipOverflowParagraphs();
     setCursor(cursorIdx, false);
   }, 1000);
 }
@@ -955,6 +975,60 @@ function refreshActivePairs() {
   });
   ids.forEach(id => {
     document.querySelectorAll(`.badge[data-pair="${id}"]`).forEach(el => el.classList.add('active'));
+  });
+  document.getElementById('pages').classList.toggle('has-exergue', ids.size > 0);
+}
+
+// Un badge est "orphelin" quand son partenaire (même data-pair) n'existe pas dans le DOM — cas
+// normal : le partenaire est hors de la portion visible actuelle. Appelé après chaque
+// rebuildDOM(true), donc après que tous les badges d'une passe ont été (re)créés.
+function markOrphanBadges() {
+  // Un badge caché par clipOverflowParagraphs (visibility:hidden, bas de page) compte comme
+  // absent — son partenaire visible doit être marqué orphelin, pas traité comme une vraie paire.
+  const isVisible = el => el.style.visibility !== 'hidden';
+  const countByPair = new Map();
+  document.querySelectorAll('.badge[data-pair]').forEach(el => {
+    if (!isVisible(el)) return;
+    countByPair.set(el.dataset.pair, (countByPair.get(el.dataset.pair) || 0) + 1);
+  });
+  document.querySelectorAll('.badge[data-pair]').forEach(el => {
+    if (!isVisible(el)) return;
+    el.classList.toggle('orphan', (countByPair.get(el.dataset.pair) || 0) === 1);
+  });
+}
+
+// Coupure nette en bas de page : dès qu'un mot commence après la limite (hauteur de .page moins
+// son padding bas), lui et TOUT ce qui suit (même mot, badges compris, paragraphes suivants sur
+// la même page) passent en visibility:hidden — jamais de ligne affichée à moitié, cachée par le
+// footer noir. visibility (pas display:none) : garde la boîte de layout, comme #pages.hidden,
+// pour ne pas fausser les mesures DOM des passes suivantes.
+function clipOverflowParagraphs() {
+  // Limite = bas du conteneur #pages (borné par flex, cf. CSS), PAS bas de .page lui-même —
+  // .page n'est jamais étiré (align-items:flex-start) : sa hauteur est celle de SON contenu,
+  // donc toujours >= à lui-même, "bottom > limit" ne se déclenchait quasiment jamais.
+  const pagesRect = document.getElementById('pages').getBoundingClientRect();
+  PAGES.forEach(page => {
+    const pageRect = page.pageEl.getBoundingClientRect();
+    const padBottom = parseFloat(getComputedStyle(page.pageEl).paddingBottom);
+    const limit = pagesRect.bottom - pageRect.top - padBottom;
+    let cut = false;
+    paraStates.forEach(ps => {
+      if (ps.page !== page) return;
+      ps.wordState.forEach(st => {
+        if (!cut) {
+          // Référence = le bas le plus bas parmi le mot ET ses badges (le badge "after" déborde
+          // plus bas que le mot lui-même) — sinon un mot tient dans la page mais son badge, sous
+          // la ligne, se fait couper par l'overflow:hidden de .page, invisible sans prévenir.
+          let bottom = st.span.getBoundingClientRect().bottom;
+          if (st.beforeEl) bottom = Math.max(bottom, st.beforeEl.getBoundingClientRect().bottom);
+          if (st.afterEl)  bottom = Math.max(bottom, st.afterEl.getBoundingClientRect().bottom);
+          if (bottom - pageRect.top > limit) cut = true;
+        }
+        st.span.style.visibility = cut ? 'hidden' : '';
+        if (st.beforeEl) st.beforeEl.style.visibility = cut ? 'hidden' : '';
+        if (st.afterEl)  st.afterEl.style.visibility  = cut ? 'hidden' : '';
+      });
+    });
   });
 }
 
@@ -1122,8 +1196,23 @@ function dbTokensToProx(tokens) {
   return prox;
 }
 
+// Position/largeur de la pageline : proportion du livre couverte par la fenêtre actuellement
+// chargée. Pas de navigation pour l'instant (boutons prev/next visibles mais désactivés — la
+// vraie pagination demande que load_window() accepte un point de départ arbitraire côté Python,
+// pas fait) — calculée une fois, ne bouge pas en cours de session.
+function updatePageLine() {
+  const cursorEl = document.getElementById('pageline-cursor');
+  if (!windowTotalChars) return;
+  const pct  = windowStartOffset / windowTotalChars;
+  const size = (fullText.length + hiddenTail.length) / windowTotalChars;
+  cursorEl.style.left  = (pct * 100) + '%';
+  cursorEl.style.width = Math.max(size * 100, 0.5) + '%';
+}
+
 function startWithRealText() {
-  window.pywebview.api.load_window().then(({ tokens }) => {
+  window.pywebview.api.load_window().then(({ tokens, total_chars, start_offset }) => {
+    windowTotalChars  = total_chars;
+    windowStartOffset = start_offset;
     // tokens : fenêtre brute (visible + cachée pour les proximités), alias courts i/m/w/s/c/x —
     // cf. app/db.py. Chaque ligne EST un token entier : jamais de coupure en tête ni en fin.
     assignOffsets(tokens);
@@ -1132,6 +1221,7 @@ function startWithRealText() {
     fullText   = tokens.slice(0, nbVisible).map(t => t.m + t.s).join('');
     hiddenTail = tokens.slice(nbVisible).map(t => t.m + t.s).join('');
     TOKENS = buildTokens(fullText);
+    updatePageLine();
     // Affichage à partir des tokens déjà en base (offset/proximités calculés ici, en JS) : plus
     // d'attente du modèle spaCy pour montrer texte + badges, plus de second passage Python
     // (ProxEngine/analyze()) derrière — supprimé 2026-07-16, il produisait un rendu différent du

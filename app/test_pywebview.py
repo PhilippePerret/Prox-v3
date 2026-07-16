@@ -117,7 +117,11 @@ class TestAPI:
             self.debug_log(f"PY load_window: token {start} absent de la base, retombe sur first_token_id")
             start = db.first_token_id(self._db) or 0
             tokens = db.tokens_from(self._db, start, WINDOW_TOKENS)
-        return {'tokens': tokens}
+        # total_chars/start_offset : uniquement pour affichage (pageline du footer) — jamais pour
+        # découper le texte brut (cf. suppression d'offset_of_mot 2026-07-16, toujours valable).
+        total_chars = len(TEXTE_SOURCE.read_text(encoding="utf-8"))
+        start_offset = db.char_offset_before(self._db, start) if tokens else 0
+        return {'tokens': tokens, 'total_chars': total_chars, 'start_offset': start_offset}
 
     def debug_log(self, msg: str) -> None:
         # msg vient déjà préfixé "[Nms] ..." côté JS (performance.now()) — préfixe ici avec

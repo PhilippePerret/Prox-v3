@@ -114,6 +114,18 @@ def first_token_id(conn: sqlite3.Connection):
     return row[0]
 
 
+def char_offset_before(conn: sqlite3.Connection, token_id: int) -> int:
+    """Position caractère EXACTE (pas approximative — somme `longueur + LENGTH(wspace)` réels,
+    pas un +1 supposé) du début du token `token_id`, en sommant tous les tokens qui le précèdent
+    dans la base. Usage : affichage seulement (ex. position dans la pageline) — jamais pour
+    découper le texte brut (cf. suppression d'`offset_of_mot`, 2026-07-16)."""
+    row = conn.execute(
+        "SELECT COALESCE(SUM(longueur + LENGTH(wspace)), 0) FROM tokens WHERE id < ?",
+        (token_id,),
+    ).fetchone()
+    return row[0]
+
+
 def tokens_from(conn: sqlite3.Connection, start_id: int, limit: int) -> list:
     """Les `limit` tokens de `tokens` à partir de `start_id` (inclus), dans l'ordre — alias
     courts posés directement dans le SELECT (cf. table en tête de fichier). Chaque ligne EST un

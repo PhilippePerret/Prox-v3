@@ -6,6 +6,10 @@ html, body {
   font-family: Georgia, serif;
   overflow: hidden;
 }
+body {
+  display: flex;
+  flex-direction: column;
+}
 
 #splash {
   position: fixed; inset: 0;
@@ -24,10 +28,13 @@ html, body {
 #pages {
   display: flex;
   align-items: flex-start; /* pas de stretch : chaque page garde la hauteur de son contenu */
-  height: calc(100% - 48px);
-  margin: 24px;
+  flex: 1 1 auto;
+  min-height: 0; /* laisse flex rétrécir #pages sous sa taille de contenu — sinon le footer serait
+                    repoussé hors écran par du texte plus haut que l'espace disponible */
+  margin: 24px 24px 12px;
   gap: 40px; /* PAGE_GUTTER, cf. app/config.py */
-  overflow: hidden; /* même rôle que le overflow:hidden du body avant le passage à 2 pages */
+  overflow: hidden; /* filet de sécurité — clipOverflowParagraphs (test.js) coupe déjà proprement
+                        à la ligne près avant d'en arriver là */
 }
 /* visibility, pas display:none : #pages doit garder sa boîte de layout pour que placeWordAt
    mesure des positions réelles (getBoundingClientRect) pendant que le splash le recouvre. */
@@ -40,7 +47,7 @@ html, body {
   background: white;
   padding: 48px 60px;
   font-size: 24px;
-  line-height: 68px;
+  line-height: 60px;
   color: #1a1a1a;
   user-select: none;
   cursor: text;
@@ -82,6 +89,12 @@ html, body {
   opacity: 1;
   box-shadow: 0 0 4px 1px rgba(var(--badge-rgb, 74,144,217), 0.8);
 }
+#pages.has-exergue .badge:not(.active) { opacity: 0; }
+
+/* Partenaire absent du DOM (hors fenêtre visible) — badge normal, jamais associable à une
+   exergue. Bordure discontinue pour le distinguer d'un badge dont le partenaire existe mais n'a
+   juste pas encore été cliqué. */
+.badge.orphan { border-style: dashed; }
 
 #hidden-input {
   position: fixed;
@@ -99,13 +112,59 @@ html, body {
 }
 @keyframes blink { 0%, 84% { opacity: 1; } 85%, 100% { opacity: 0; } }
 
-#info {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
+/* ── Footer (porté depuis l'ancien app/static/prox.css/index.html, jamais présent dans
+   test.html jusqu'ici) : pageline (position dans le livre), infos curseur, navigation. Flux
+   normal (pas fixed) : #pages lui laisse la place via flex, plus de chevauchement. */
+#footer {
+  flex-shrink: 0;
   background: #222;
   color: #eee;
   font-family: Menlo, monospace;
-  font-size: 13px;
-  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 20px;
+}
+
+#pageline {
+  width: calc(100% - 40px);
+  height: 6px;
+  background: #444;
+  border-radius: 3px;
+  position: relative;
+}
+#pageline-cursor {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: #6ab0ff;
+  border-radius: 3px;
+  min-width: 4px;
+}
+
+#footer-info {
+  font-size: 12px;
+  color: #999;
   white-space: pre-wrap;
 }
+
+#footer-nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-size: 13px;
+  color: #ccc;
+}
+
+.nav-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #ccc;
+  cursor: pointer;
+  padding: 0 8px;
+  line-height: 1;
+}
+.nav-btn:hover:not(:disabled) { color: #fff; }
+.nav-btn:disabled { color: #555; cursor: default; }
