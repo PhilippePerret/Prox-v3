@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Fond blanc, coin arrondi — padding macOS standard (824x824 dans 1024, marge 100) -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFFFF"/>
+  <!-- Deux occurrences du même mot (points pleins) reliées par la distance mesurée entre elles -->
+  <circle cx="260" cy="512" r="72" fill="#1D1D1F"/>
+  <circle cx="764" cy="512" r="72" fill="#1D1D1F"/>
+  <line x1="332" y1="512" x2="692" y2="512" stroke="#1D1D1F" stroke-width="14" stroke-dasharray="4 34" stroke-linecap="round"/>
+  <line x1="332" y1="462" x2="332" y2="562" stroke="#1D1D1F" stroke-width="14" stroke-linecap="round"/>
+  <line x1="692" y1="462" x2="692" y2="562" stroke="#1D1D1F" stroke-width="14" stroke-linecap="round"/>
+</svg>

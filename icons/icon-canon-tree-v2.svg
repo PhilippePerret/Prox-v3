@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFFFF"/>
+  <!-- Canon (racine, couleur) -> formes (feuilles, gros points, traits épais) -->
+  <line x1="512" y1="330" x2="292" y2="640" stroke="#1A1A1A" stroke-width="26" stroke-linecap="round"/>
+  <line x1="512" y1="330" x2="512" y2="680" stroke="#1A1A1A" stroke-width="26" stroke-linecap="round"/>
+  <line x1="512" y1="330" x2="732" y2="640" stroke="#1A1A1A" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="512" cy="290" r="100" fill="#FF5A36"/>
+  <circle cx="292" cy="672" r="66" fill="#1A1A1A"/>
+  <circle cx="512" cy="712" r="66" fill="#1A1A1A"/>
+  <circle cx="732" cy="672" r="66" fill="#1A1A1A"/>
+</svg>

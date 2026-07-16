@@ -65,11 +65,22 @@ html, body {
   line-height: 24px;
   font-family: Menlo, monospace;
   padding: 0 3px;
-  border: 1px solid #4a90d9;
+  border: 1px solid rgba(var(--badge-rgb, 74,144,217), 0.9);
   border-radius: 2px;
-  background: rgba(74, 144, 217, 0.15);
-  color: #2244cc;
+  background: rgba(var(--badge-rgb, 74,144,217), 0.35);
+  color: rgba(var(--badge-rgb, 74,144,217), 1);
   white-space: nowrap;
+  /* Le fondu faible/en-exergue se fait UNIQUEMENT via cette opacité d'élément — les alpha
+     ci-dessus (border/background/color) sont volontairement pleins, sinon les deux se
+     multiplient (0.15 d'opacité x 0.15 d'alpha ≈ 2% : badge quasi invisible). */
+  opacity: 0.35;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.badge.active {
+  opacity: 1;
+  box-shadow: 0 0 4px 1px rgba(var(--badge-rgb, 74,144,217), 0.8);
 }
 
 #hidden-input {

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Fond blanc, coin arrondi — padding macOS standard (824x824 dans 1024, marge 100) -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFFFF"/>
+  <!-- Lignes de texte ; deux segments identiques (même canon) reliés par un arc de répétition -->
+  <rect x="212" y="270" width="600" height="36" rx="18" fill="#1D1D1F" opacity="0.25"/>
+  <rect x="212" y="358" width="440" height="36" rx="18" fill="#1D1D1F" opacity="0.25"/>
+  <rect x="212" y="446" width="160" height="36" rx="18" fill="#1D1D1F"/>
+  <rect x="212" y="534" width="520" height="36" rx="18" fill="#1D1D1F" opacity="0.25"/>
+  <rect x="596" y="622" width="160" height="36" rx="18" fill="#1D1D1F"/>
+  <rect x="212" y="710" width="360" height="36" rx="18" fill="#1D1D1F" opacity="0.25"/>
+  <path d="M 292 446 C 292 200, 676 200, 676 622" fill="none" stroke="#1D1D1F" stroke-width="14" stroke-linecap="round"/>
+</svg>

@@ -3,6 +3,28 @@
 // Distance FIXE entre deux mots
 const GAP = 12;
 
+// Seuil de proximité (dupliqué de app/config.py::SEUIL_DEFAUT — pas d'import Python->JS
+// possible ; à garder synchronisé si la valeur change côté serveur).
+const SEUIL = 1500;
+
+// Longueur visible ciblée (caractères) — VISIBLE_LEN. Sert uniquement à choisir où couper entre
+// tokens visibles et cachés dans la fenêtre reçue de load_window() : jamais en tranchant un
+// caractère, toujours à une frontière de token (cf. computeVisibleCount).
+const VISIBLE_LEN = 3000;
+
+// Couleur badge/mot selon l'éloignement — 3 couleurs FIXES, pas de dégradé continu (décision
+// utilisateur 2026-07-16 : un dégradé produisait trop de cas illisibles). Valeurs de départ,
+// à retoucher directement dans l'inspecteur WebKit (cf. discussion) pour trouver l'équilibre.
+const COULEUR_PROCHE   = [211, 47, 47];  // rouge   — ratio proche de 0 (distance proche de 0)
+const COULEUR_MOYEN    = [245, 124, 0];  // orange  — ratio autour de 1/2
+const COULEUR_LOINTAIN = [56, 142, 60];  // vert    — ratio proche de 1 (distance proche du seuil)
+function repColor(distance, seuil) {
+  const ratio = Math.max(0, Math.min(1, distance / seuil));
+  if (ratio < 1 / 3) return COULEUR_PROCHE;
+  if (ratio < 2 / 3) return COULEUR_MOYEN;
+  return COULEUR_LOINTAIN;
+}
+
 
 window.addEventListener('error', e => {
   if (window.pywebview && window.pywebview.api) {
@@ -94,6 +116,8 @@ function placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, p
       beforeBadgeEl = document.createElement('div');
       beforeBadgeEl.className = 'badge';
       beforeBadgeEl.textContent = token.before;
+      beforeBadgeEl.style.setProperty('--badge-rgb', repColor(token.before, SEUIL).join(','));
+      if (token.beforePair) beforeBadgeEl.dataset.pair = token.beforePair;
       badgeLayer.appendChild(beforeBadgeEl);
       const bw = beforeBadgeEl.getBoundingClientRect().width;
       beforeBadgeEl.style.left = actualX + 'px';
@@ -123,6 +147,8 @@ function placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, p
     afterBadgeEl = document.createElement('div');
     afterBadgeEl.className = 'badge';
     afterBadgeEl.textContent = token.after;
+    afterBadgeEl.style.setProperty('--badge-rgb', repColor(token.after, SEUIL).join(','));
+    if (token.afterPair) afterBadgeEl.dataset.pair = token.afterPair;
     afterBadgeEl.style.left = (centerX + GAP / 4) + 'px';
     afterBadgeEl.style.top  = top + 'px';
     badgeLayer.appendChild(afterBadgeEl);
@@ -230,7 +256,7 @@ function computeSplitParaIndex(paragraphs) {
 function pageForParaIndex(pi, splitIdx) { return pi < splitIdx ? PAGE_LEFT : PAGE_RIGHT; }
 
 // force=true : retouche TOUS les paragraphes même si leur texte n'a pas changé — nécessaire après
-// applyRepetitions, qui modifie les données de badge (TOKENS[i].before/after) sans jamais toucher
+// applyProximites, qui modifie les données de badge (TOKENS[i].before/after) sans jamais toucher
 // fullText ; sans ce forçage, le test "texte inchangé => rien à refaire" saute silencieusement le
 // placement des badges tant qu'aucune frappe n'a eu lieu sur le paragraphe concerné.
 function rebuildDOM(force) {
@@ -411,7 +437,7 @@ function quickSync() {
 }
 
 // Squelette des tokens de la portion VISIBLE (offsets, découpage mots) — before/after (distances)
-// remplis ensuite par applyRepetitions() une fois la réponse spaCy reçue.
+// remplis ensuite par applyProximites() une fois les proximités connues.
 function buildTokens(text) {
   const tokens = [];
   let i = 0;
@@ -449,53 +475,20 @@ function logError(context, err) {
   }
 }
 
-function requestAnalysis(text) {
-  dlog(`requestAnalysis appelé, text.length=${text.length}`);
-  if (!(window.pywebview && window.pywebview.api)) { dlog('requestAnalysis: pas de window.pywebview.api'); return; }
-  let promise;
-  try {
-    dlog('requestAnalysis: appel window.pywebview.api.analyze() en cours');
-    promise = window.pywebview.api.analyze(text);
-    dlog(`requestAnalysis: appel lancé, type retour=${typeof promise}, isPromise=${promise && typeof promise.then === 'function'}`);
-  } catch (err) {
-    logError('analyze (appel synchrone)', err);
-    return;
-  }
-  promise
-    .then(reps => {
-      dlog(`analyze resolu, reps.length=${reps.length}`);
-      try { applyRepetitions(reps); } catch (err) { logError('applyRepetitions', err); }
-    })
-    .catch(err => logError('analyze', err));
-}
-
-// Chargement spaCy = thread séparé côté Python, quelques secondes. Interroge is_model_ready()
-// toutes les secondes (splash affiché pendant ce temps, cf. reveal()) ; une fois prêt, lance la
-// première analyse et arrête le polling.
-function pollModelReady() {
-  if (!(window.pywebview && window.pywebview.api)) return;
-  const timer = setInterval(() => {
-    window.pywebview.api.is_model_ready().then(ready => {
-      dlog(`is_model_ready=${ready}`);
-      if (ready) {
-        clearInterval(timer);
-        requestAnalysis(fullText + hiddenTail);
-      }
-    });
-  }, 1000);
-}
-
-function applyRepetitions(reps) {
-  const byOffset = new Map(); // offset du mot -> { before, after }
-  reps.forEach(({ offset_a, offset_b, distance }) => {
+function applyProximites(prox) {
+  const byOffset = new Map(); // offset du mot -> { before, after, beforePair, afterPair }
+  prox.forEach(({ offset_a, offset_b, distance }) => {
+    const pairId = `${offset_a}:${offset_b}`; // stable pour ce couple, sert au survol (data-pair)
     const a = byOffset.get(offset_a) || {};
     a.after = distance;
+    a.afterPair = pairId;
     byOffset.set(offset_a, a);
     const b = byOffset.get(offset_b) || {};
     b.before = distance;
+    b.beforePair = pairId;
     byOffset.set(offset_b, b);
   });
-  TOKENS.forEach(t => { t.before = null; t.after = null; });
+  TOKENS.forEach(t => { t.before = null; t.after = null; t.beforePair = null; t.afterPair = null; });
   // TOKENS trié par offset croissant : recherche du token qui CONTIENT chaque offset spaCy, pas
   // égalité stricte — un mot élidé ("j'ai") est un seul token JS (span entier) mais spaCy le
   // scinde en "j'" + "ai" ; l'offset spaCy de "ai" tombe alors À L'INTÉRIEUR du token JS "j'ai",
@@ -510,16 +503,61 @@ function applyRepetitions(reps) {
     if (found === -1) return;
     const t = TOKENS[found];
     if (pyOffset >= t.offset + t.forme.length) return; // tombe hors mot (espace/saut de ligne)
-    if ('before' in entry) t.before = entry.before;
-    if ('after'  in entry) t.after  = entry.after;
+    if ('before' in entry) { t.before = entry.before; t.beforePair = entry.beforePair; }
+    if ('after'  in entry) { t.after  = entry.after;  t.afterPair  = entry.afterPair; }
   });
   const matched = TOKENS.filter(t => t.before !== null || t.after !== null).length;
-  dlog(`applyRepetitions: TOKENS.length=${TOKENS.length}, byOffset.size=${byOffset.size}, matched=${matched}`);
+  dlog(`applyProximites: TOKENS.length=${TOKENS.length}, byOffset.size=${byOffset.size}, matched=${matched}`);
   rebuildDOM(true);
   const nbBadges = PAGE_LEFT.badgeLayer.children.length + PAGE_RIGHT.badgeLayer.children.length;
-  dlog(`applyRepetitions: badges dans le DOM apres rebuildDOM = ${nbBadges}`);
-  setCursor(cursorIdx, false);
+  dlog(`applyProximites: badges dans le DOM apres rebuildDOM = ${nbBadges}`);
+  setCursor(cursorIdx, false, true);  // silentPairs : pas de clic réel, ne pas allumer d'exergue
   reveal();
+}
+
+// ── Tokens bruts reçus de load_window() (id/mot/longueur/wspace/canon_id/ignored, alias courts
+// i/m/w/s/c/x — cf. app/db.py) : offset relatif + proximités calculés ICI, en JS, jamais en
+// Python (mesuré 2026-07-16 : différence négligeable en absolu sur 7000 tokens, mais nécessaire
+// ici aussi pour le recalcul en direct pendant la frappe — un seul endroit qui porte cette
+// logique plutôt que deux implémentations à tenir synchronisées).
+function assignOffsets(tokens) {
+  let pos = 0;
+  for (const t of tokens) {
+    t.o = pos;
+    pos += t.w + t.s.length;
+  }
+}
+
+// Ajoute 'b'/'a' (before/after) SEULEMENT aux tokens réellement en proximité — pas de clé posée
+// pour les autres. Un token 'x' (ignored) n'entre jamais dans un groupe de canon, même s'il
+// partage le canon d'un autre token. Par canon, les occurrences (déjà dans l'ordre du texte) sont
+// comparées deux à deux consécutivement : écart sous le seuil => 'a' sur la première, 'b' sur la
+// seconde. Nécessite que assignOffsets() ait déjà tourné sur la même liste.
+function assignProximites(tokens, seuil) {
+  const parCanon = new Map();
+  for (const t of tokens) {
+    if (t.x) continue;
+    if (!parCanon.has(t.c)) parCanon.set(t.c, []);
+    parCanon.get(t.c).push(t);
+  }
+  for (const occ of parCanon.values()) {
+    if (occ.length < 2) continue;
+    for (let k = 0; k < occ.length - 1; k++) {
+      const prev = occ[k], nxt = occ[k + 1];
+      const ecart = nxt.o - prev.o;
+      if (ecart < seuil) { prev.a = ecart; nxt.b = ecart; }
+    }
+  }
+}
+
+// Nombre de tokens (préfixe de la liste) à considérer visibles : tous les tokens dont l'offset
+// de départ est < VISIBLE_LEN. Un token qui commence avant la limite mais la dépasse reste
+// entièrement visible (jamais coupé) — le suivant, qui commence à/après la limite, est caché.
+function computeVisibleCount(tokens) {
+  for (let k = 0; k < tokens.length; k++) {
+    if (tokens[k].o >= VISIBLE_LEN) return k;
+  }
+  return tokens.length;
 }
 
 // Bascule splash -> page une seule fois, la première fois que texte ET badges sont prêts
@@ -736,10 +774,14 @@ function render(info) {
   if (info) infoEl.textContent = info;
 }
 
-function setCursor(idx, keepAnchor) {
+// silentPairs=true : ne touche pas à l'exergue (cursorPairIds) — sert au réaffichage du curseur
+// après un rebuild (rebuildDOM, applyProximites) où la position n'a pas réellement bougé sous
+// l'action de l'utilisateur, pour ne pas allumer une proximité que personne n'a cliquée.
+function setCursor(idx, keepAnchor, silentPairs) {
   cursorIdx = clampIdx(idx);
   if (!keepAnchor) anchorIdx = null;
   render(`position ${cursorIdx} — ${describePosition(cursorIdx)}` + (anchorIdx !== null ? ` — sélection [${Math.min(anchorIdx, cursorIdx)}, ${Math.max(anchorIdx, cursorIdx)})` : ''));
+  if (!silentPairs) updateCursorPairs();
   logCursor();
 }
 
@@ -898,10 +940,65 @@ function deleteForward() {
   if (!didFullRebuild) scheduleRebuild();
 }
 
+// ── Exergue proximité : curseur dans un mot en proximité => opacité 1 (CSS .badge.active) sur
+// son badge ET son partenaire (même data-pair). Rien au survol de la souris (décision utilisateur
+// 2026-07-16 : le survol faisait tout apparaître dès qu'on bouge la souris, non voulu — seul le
+// déplacement du curseur texte, donc un clic ou les flèches, déclenche l'exergue). Par défaut,
+// opacité faible pour tous les badges (cf. test.css .badge). Un mot peut avoir un pair AVANT et
+// un pair APRÈS en même temps (occurrences successives du même canon) : les deux s'allument.
+let cursorPairIds = new Set();
+
+function refreshActivePairs() {
+  const ids = cursorPairIds;
+  document.querySelectorAll('.badge.active').forEach(el => {
+    if (!ids.has(el.dataset.pair)) el.classList.remove('active');
+  });
+  ids.forEach(id => {
+    document.querySelectorAll(`.badge[data-pair="${id}"]`).forEach(el => el.classList.add('active'));
+  });
+}
+
+// Token JS (span space-split) qui contient charIdx, ou null (entre deux mots) — même recherche
+// par offset que applyProximites, réutilisée ici pour retrouver la paire depuis le curseur.
+function tokenAt(charIdx) {
+  let lo = 0, hi = TOKENS.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (TOKENS[mid].offset <= charIdx) { found = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  if (found === -1) return null;
+  const t = TOKENS[found];
+  if (charIdx >= t.offset + t.forme.length) return null;
+  return t;
+}
+
+function updateCursorPairs() {
+  const t = tokenAt(cursorIdx);
+  cursorPairIds = new Set();
+  if (t) {
+    if (t.beforePair) cursorPairIds.add(t.beforePair);
+    if (t.afterPair)  cursorPairIds.add(t.afterPair);
+  }
+  refreshActivePairs();
+}
+
 // ── Souris : clic simple, glissé, Maj+clic, double-clic, triple-clic ─────────────────────────
 let lastClick = { time: 0, idx: -1, count: 0 };
 
 PAGES.forEach(page => {
+  // Clic sur un badge : allume ce badge ET son partenaire (même data-pair), sans déplacer le
+  // curseur texte (un badge n'est pas une position dans fullText). `.badge-layer` a
+  // pointer-events:none mais `.badge` le réactive individuellement (cf. test.css) — l'évènement
+  // remonte normalement jusqu'ici par bubbling, indépendamment de la valeur sur les ancêtres.
+  page.badgeLayer.addEventListener('mousedown', e => {
+    if (!e.target.classList.contains('badge') || !e.target.dataset.pair) return;
+    const pair = e.target.dataset.pair;
+    // Toggle : recliquer le badge déjà en exergue l'éteint, au lieu de le rallumer à l'identique.
+    cursorPairIds = cursorPairIds.has(pair) ? new Set() : new Set([pair]);
+    refreshActivePairs();
+  });
+
   page.textEl.addEventListener('mousedown', e => {
     hiddenInput.focus();
     const idx = indexAtPoint(e.clientX, e.clientY);
@@ -1013,15 +1110,33 @@ document.addEventListener('keydown', e => {
 // ── Départ ─────────────────────────────────────────────────────────────────────────────────
 // Texte réel (assets/texte-modele.txt via load_window()) — point d'entrée exclusif via
 // `python -m app.test_pywebview` (cf. son docstring), toujours lancé avec pywebview.
+// Convertit les tokens (déjà passés par assignOffsets/assignProximites) en la forme attendue par
+// applyProximites (offset_a/offset_b/distance) — réutilise tel quel son matching par offset
+// (nécessaire pour les mots élidés, span JS entier vs plusieurs tokens spaCy) sans dupliquer
+// cette logique.
+function dbTokensToProx(tokens) {
+  const prox = [];
+  for (const t of tokens) {
+    if (t.a !== undefined) prox.push({ offset_a: t.o, offset_b: t.o + t.a, distance: t.a });
+  }
+  return prox;
+}
+
 function startWithRealText() {
-  window.pywebview.api.load_window().then(({ texte_complet, fin_visible }) => {
-    fullText   = texte_complet.slice(0, fin_visible);
-    hiddenTail = texte_complet.slice(fin_visible);
+  window.pywebview.api.load_window().then(({ tokens }) => {
+    // tokens : fenêtre brute (visible + cachée pour les proximités), alias courts i/m/w/s/c/x —
+    // cf. app/db.py. Chaque ligne EST un token entier : jamais de coupure en tête ni en fin.
+    assignOffsets(tokens);
+    assignProximites(tokens, SEUIL);
+    const nbVisible = computeVisibleCount(tokens);
+    fullText   = tokens.slice(0, nbVisible).map(t => t.m + t.s).join('');
+    hiddenTail = tokens.slice(nbVisible).map(t => t.m + t.s).join('');
     TOKENS = buildTokens(fullText);
-    // Rien construit/affiché ici : le splash reste visible tant que le modèle spaCy n'est pas
-    // chargé (cf. pollModelReady) — évite de montrer le texte sans badge puis de le voir "sauter"
-    // quand les badges arrivent après coup (décision utilisateur 2026-07-15).
-    pollModelReady();
+    // Affichage à partir des tokens déjà en base (offset/proximités calculés ici, en JS) : plus
+    // d'attente du modèle spaCy pour montrer texte + badges, plus de second passage Python
+    // (ProxEngine/analyze()) derrière — supprimé 2026-07-16, il produisait un rendu différent du
+    // premier (décalages de mots incohérents, cf. `_dev/screenshots/2026-07-16-pass*`).
+    applyProximites(dbTokensToProx(tokens));  // appelle déjà reveal() en interne
   });
 }
 

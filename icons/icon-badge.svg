@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Fond blanc, coin arrondi — padding macOS standard (824x824 dans 1024, marge 100) -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFFFF"/>
+  <!-- Badge de distance, tel qu'affiché sous un mot dans l'éditeur -->
+  <rect x="212" y="392" width="600" height="240" rx="120" fill="none" stroke="#1D1D1F" stroke-width="28"/>
+  <text x="512" y="512" text-anchor="middle" dominant-baseline="central"
+        font-family="Georgia, serif" font-size="200" fill="#1D1D1F">12</text>
+</svg>

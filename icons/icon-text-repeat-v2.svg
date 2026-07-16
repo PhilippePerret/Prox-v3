@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFFFF"/>
+  <!-- Lignes de texte épaisses, deux mots identiques en couleur, arc de liaison marqué -->
+  <rect x="222" y="300" width="580" height="52" rx="26" fill="#1A1A1A" opacity="0.18"/>
+  <rect x="222" y="412" width="200" height="52" rx="26" fill="#FF5A36"/>
+  <rect x="446" y="412" width="356" height="52" rx="26" fill="#1A1A1A" opacity="0.18"/>
+  <rect x="222" y="524" width="420" height="52" rx="26" fill="#1A1A1A" opacity="0.18"/>
+  <rect x="602" y="636" width="200" height="52" rx="26" fill="#FF5A36"/>
+  <rect x="222" y="636" width="336" height="52" rx="26" fill="#1A1A1A" opacity="0.18"/>
+  <path d="M 322 412 C 322 190, 702 190, 702 636" fill="none" stroke="#1A1A1A" stroke-width="22" stroke-linecap="round"/>
+</svg>

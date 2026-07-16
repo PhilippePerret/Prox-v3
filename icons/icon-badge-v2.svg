@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFFFF"/>
+  <!-- Badge plein, gros chiffre blanc -->
+  <rect x="222" y="372" width="580" height="280" rx="140" fill="#FF5A36"/>
+  <text x="512" y="522" text-anchor="middle" dominant-baseline="central"
+        font-family="Georgia, serif" font-weight="bold" font-size="240" fill="#FFFFFF">12</text>
+</svg>

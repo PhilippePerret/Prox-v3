@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Fond blanc, coin arrondi — padding macOS standard (824x824 dans 1024, marge 100) -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#FFFFFF"/>
+  <!-- Un canon (racine), plusieurs formes issues de lui (feuilles) -->
+  <circle cx="512" cy="260" r="64" fill="#1D1D1F"/>
+  <line x1="512" y1="324" x2="272" y2="600" stroke="#1D1D1F" stroke-width="16" stroke-linecap="round"/>
+  <line x1="512" y1="324" x2="512" y2="640" stroke="#1D1D1F" stroke-width="16" stroke-linecap="round"/>
+  <line x1="512" y1="324" x2="752" y2="600" stroke="#1D1D1F" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="272" cy="656" r="48" fill="none" stroke="#1D1D1F" stroke-width="20"/>
+  <circle cx="512" cy="696" r="48" fill="none" stroke="#1D1D1F" stroke-width="20"/>
+  <circle cx="752" cy="656" r="48" fill="none" stroke="#1D1D1F" stroke-width="20"/>
+</svg>
