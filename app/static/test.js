@@ -5,10 +5,10 @@ const GAP = 12;
 
 // Seuil de proximité (dupliqué de app/config.py::SEUIL_DEFAUT — pas d'import Python->JS
 // possible ; à garder synchronisé si la valeur change côté serveur).
-const SEUIL = 1500;
+const SEUIL_DEFAUT = 1500;
 
 // Seuil par canon (nourri plus tard depuis un outil d'analyse de corpus d'auteurs — vide pour
-// l'instant, cf. buildTokenIndex : tout canon retombe sur SEUIL par défaut tant qu'il n'a pas
+// l'instant, cf. merde_claude_buildTokenIndex : tout canon retombe sur SEUIL par défaut tant qu'il n'a pas
 // d'entrée ici. Décision utilisateur 2026-07-17 : PAS une feature future, le seuil est par canon
 // depuis le principe, seul l'outil qui le calcule n'est pas encore branché).
 const SEUIL_PER_CANON = {};
@@ -57,10 +57,10 @@ function scheduleHiddenInputClear() {
 
 // fullText : la fenêtre ENTIÈRE reçue de load_window() (7200 tokens, cf. test_pywebview.py) — plus
 // de split visible/caché (VISIBLE_LEN/hiddenTail supprimés 2026-07-17). Construction DOM en 2
-// passes (cf. buildTokenIndex/rebuildDOM) : la passe 1 calcule offsets+proximités sur toute la
+// passes (cf. merde_claude_buildTokenIndex/merde_claude_rebuildDOM) : la passe 1 calcule offsets+proximités sur toute la
 // fenêtre AVANT tout rendu (un before/after peut référencer un mot hors de ce qui tiendra à
 // l'écran) ; la passe 2 construit le DOM depuis le premier mot et remplit jusqu'à ce qu'il n'y ait
-// plus de place (clipOverflowParagraphs, déjà existant, décide seul ce qui reste visible).
+// plus de place (merde_claude_clipOverflowParagraphs, déjà existant, décide seul ce qui reste visible).
 let fullText = '';
 
 const infoEl = document.getElementById('footer-info');
@@ -73,18 +73,19 @@ let windowTotalChars  = 0;
 let windowStartOffset = 0;
 
 // PAGES : les deux conteneurs visuels gauche/droite. Un paragraphe entier de fullText est toujours
-// rendu dans l'un OU l'autre, jamais coupé en deux — cf. computeSplitParaIndex. Le curseur/la
+// rendu dans l'un OU l'autre, jamais coupé en deux — cf. merde_claude_computeSplitParaIndex. Le curseur/la
 // sélection se dessinent dans les calques (badge-layer, sel-layer, fake-cursor) de la page qui
 // contient l'index concerné.
 const PAGES = ['left', 'right'].map(side => {
   const pageEl = document.querySelector(`.page[data-side="${side}"]`);
   return {
-    side,
-    pageEl,
-    textEl:     pageEl.querySelector('.text'),
-    badgeLayer: pageEl.querySelector('.badge-layer'),
-    selLayer:   pageEl.querySelector('.sel-layer'),
-    cursorEl:   pageEl.querySelector('.fake-cursor'),
+      side
+    , pageEl
+    , textEl:     pageEl.querySelector('.text')
+    , badgeLayer: pageEl.querySelector('.badge-layer')
+    , selLayer:   pageEl.querySelector('.sel-layer')
+    , cursorEl:   pageEl.querySelector('.fake-cursor')
+    , boundingRect: null
   };
 });
 const [PAGE_LEFT, PAGE_RIGHT] = PAGES;
@@ -96,16 +97,16 @@ const [PAGE_LEFT, PAGE_RIGHT] = PAGES;
 let segments = [];
 
 // paraStates : suivi persistant, paragraphe par paragraphe puis mot par mot, du dernier rendu —
-// permet à rebuildDOM de ne retoucher que le paragraphe réellement affecté par une frappe (ni les
+// permet à merde_claude_rebuildDOM de ne retoucher que le paragraphe réellement affecté par une frappe (ni les
 // autres paragraphes, ni leurs badges), au lieu de tout redétruire à chaque frappe.
 let paraStates = []; // [{ paraEl, wordState: [{span, spaceEl, beforeEl, afterEl, text, naturalX, _badgeXAfter}] }]
 
-function placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, pageRect, rightLimit) {
+function merde_claude_placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, pageRect, rightLimit) {
   // Place un mot (span déjà dans le DOM) : badge avant, décalage, badge après, retour à la ligne
   // forcé si besoin. Retourne { badgeX, prevTop } à transmettre au mot suivant.
   // rightLimit est la largeur de LA PAGE qui porte ce paragraphe (page.pageEl), pas une largeur
   // globale — chaque page gauche/droite a sa propre limite de ligne.
-  // pageRect/rightLimit calculés UNE FOIS par appelant (syncParagraph), pas ici : le conteneur
+  // pageRect/rightLimit calculés UNE FOIS par appelant (merde_claude_syncParagraph), pas ici : le conteneur
   // .page ne bouge pas pendant qu'on place les mots un par un — recalculer sa geometrie à chaque
   // mot (getBoundingClientRect + getComputedStyle, 2 layouts forcés) est un recalcul identique
   // répété inutilement à chaque mot (531 fois sur le texte de test).
@@ -126,7 +127,7 @@ function placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, p
       beforeBadgeEl = document.createElement('div');
       beforeBadgeEl.className = 'badge';
       beforeBadgeEl.textContent = token.before;
-      beforeBadgeEl.style.setProperty('--badge-rgb', repColor(token.before, SEUIL).join(','));
+      beforeBadgeEl.style.setProperty('--badge-rgb', repColor(token.before, SEUIL_DEFAUT).join(','));
       if (token.beforePair) beforeBadgeEl.dataset.pair = token.beforePair;
       badgeLayer.appendChild(beforeBadgeEl);
       const bw = beforeBadgeEl.getBoundingClientRect().width;
@@ -157,7 +158,7 @@ function placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, p
     afterBadgeEl = document.createElement('div');
     afterBadgeEl.className = 'badge';
     afterBadgeEl.textContent = token.after;
-    afterBadgeEl.style.setProperty('--badge-rgb', repColor(token.after, SEUIL).join(','));
+    afterBadgeEl.style.setProperty('--badge-rgb', repColor(token.after, SEUIL_DEFAUT).join(','));
     if (token.afterPair) afterBadgeEl.dataset.pair = token.afterPair;
     afterBadgeEl.style.left = (centerX + GAP / 4) + 'px';
     afterBadgeEl.style.top  = top + 'px';
@@ -173,7 +174,7 @@ function placeWordAt(page, paraEl, span, w, start, badgeXIn, prevTopIn, token, p
 // Construit/retouche les mots d'UN SEUL paragraphe. oldWordState === null (ou nombre de mots
 // différent) => reconstruction complète de ce paragraphe (mais des autres). Sinon, ne retouche
 // qu'à partir du premier mot changé, jusqu'à ce qu'un mot retrouve exactement sa position d'avant.
-function syncParagraph(page, paraEl, oldWordState, words, tokenIdxStart, force) {
+function merde_claude_syncParagraph(page, paraEl, oldWordState, words, tokenIdxStart, force) {
   const badgeLayer = page.badgeLayer;
   const isFull = !oldWordState || oldWordState.length !== words.length;
   let wordState;
@@ -195,7 +196,7 @@ function syncParagraph(page, paraEl, oldWordState, words, tokenIdxStart, force) 
   }
 
   // Geometrie de LA page (fixe pendant toute cette passe) : calculée une seule fois ici, transmise
-  // à chaque placeWordAt au lieu d'être relue à chaque mot.
+  // à chaque merde_claude_placeWordAt au lieu d'être relue à chaque mot.
   const pageRect = page.pageEl.getBoundingClientRect();
   const rightLimit = page.pageEl.clientWidth - parseFloat(getComputedStyle(page.pageEl).paddingRight);
 
@@ -224,7 +225,7 @@ function syncParagraph(page, paraEl, oldWordState, words, tokenIdxStart, force) 
     if (st.afterEl)  { badgeLayer.removeChild(st.afterEl);  st.afterEl  = null; }
 
     const token = TOKENS[tokenIdx++];
-    const placed = placeWordAt(page, paraEl, span, w, 0, badgeX, prevTop, token, pageRect, rightLimit);
+    const placed = merde_claude_placeWordAt(page, paraEl, span, w, 0, badgeX, prevTop, token, pageRect, rightLimit);
     const stabilized = !isFull && !force && !textChanged && Math.round(placed.naturalX) === Math.round(st.naturalX);
     badgeX = placed.badgeX;
     prevTop = placed.prevTop;
@@ -250,7 +251,7 @@ function syncParagraph(page, paraEl, oldWordState, words, tokenIdxStart, force) 
 // jamais un paragraphe coupé en deux entre les pages (cf. décision utilisateur 2026-07-14 : jamais
 // de mot coupé, ici étendu au paragraphe pour ne pas fragmenter un seul paraEl entre deux DOM
 // distincts). Un seul paragraphe total => tout à gauche, page droite vide.
-function computeSplitParaIndex(paragraphs) {
+function merde_claude_computeSplitParaIndex(paragraphs) {
   if (paragraphs.length <= 1) return paragraphs.length;
   const target = Math.floor(fullText.length / 2);
   let pos = 0, bestIdx = paragraphs.length, bestDist = Infinity;
@@ -263,17 +264,17 @@ function computeSplitParaIndex(paragraphs) {
   return bestIdx;
 }
 
-function pageForParaIndex(pi, splitIdx) { return pi < splitIdx ? PAGE_LEFT : PAGE_RIGHT; }
+function merde_claude_pageForParaIndex(pi, splitIdx) { return pi < splitIdx ? PAGE_LEFT : PAGE_RIGHT; }
 
 // force=true : retouche TOUS les paragraphes même si leur texte n'a pas changé — nécessaire après
-// applyProximites, qui modifie les données de badge (TOKENS[i].before/after) sans jamais toucher
+// merde_claude_applyProximites, qui modifie les données de badge (TOKENS[i].before/after) sans jamais toucher
 // fullText ; sans ce forçage, le test "texte inchangé => rien à refaire" saute silencieusement le
 // placement des badges tant qu'aucune frappe n'a eu lieu sur le paragraphe concerné.
-function rebuildDOM(force) {
+function merde_claude_rebuildDOM(force) {
   const paragraphs = fullText.split('\n');
-  const splitIdx = computeSplitParaIndex(paragraphs);
+  const splitIdx = merde_claude_computeSplitParaIndex(paragraphs);
   const sideChanged = paraStates.length === paragraphs.length &&
-    paraStates.some((ps, pi) => ps.page !== pageForParaIndex(pi, splitIdx));
+    paraStates.some((ps, pi) => ps.page !== merde_claude_pageForParaIndex(pi, splitIdx));
 
   // Nombre de caractères de fullText assignés à chaque page — sert à juger si un zoom (taille de
   // police) permettrait d'en afficher plus (cf. discussion 2026-07-16, interligne réduit pour
@@ -292,12 +293,12 @@ function rebuildDOM(force) {
     paraStates = [];
     let tokenIdx = 0;
     paragraphs.forEach((paraText, pi) => {
-      const page = pageForParaIndex(pi, splitIdx);
+      const page = merde_claude_pageForParaIndex(pi, splitIdx);
       const paraEl = document.createElement('div');
       paraEl.className = 'para';
       page.textEl.appendChild(paraEl);
       const words = paraText.split(' ');
-      const wordState = syncParagraph(page, paraEl, null, words, tokenIdx);
+      const wordState = merde_claude_syncParagraph(page, paraEl, null, words, tokenIdx);
       paraStates.push({ paraEl, wordState, page });
       tokenIdx += words.length;
     });
@@ -310,20 +311,20 @@ function rebuildDOM(force) {
       const ps = paraStates[pi];
       const currentText = ps.wordState.map(st => st.text).join(' ');
       if (force || currentText !== paragraphs[pi]) {
-        ps.wordState = syncParagraph(ps.page, ps.paraEl, ps.wordState, words, tokenIdx, force);
+        ps.wordState = merde_claude_syncParagraph(ps.page, ps.paraEl, ps.wordState, words, tokenIdx, force);
       }
       tokenIdx += words.length;
     }
   }
 
-  recomputeSegments();
+  merde_claude_recomputeSegments();
 }
 
 // Offsets caractère de chaque segment (mot/espace/saut) — bon marché, aucune mesure DOM. Lit la
 // longueur sur `span.textContent` (toujours exact) et non sur `st.text` : `st.text` sert de
-// marqueur "dernière position calculée" pour quickSync/syncParagraph (voir plus bas) et peut donc
+// marqueur "dernière position calculée" pour quickSync/merde_claude_syncParagraph (voir plus bas) et peut donc
 // être volontairement en retard d'une frappe pendant la fenêtre de débounce.
-function recomputeSegments() {
+function merde_claude_recomputeSegments() {
   segments = [];
   let pos = 0;
   paraStates.forEach((ps, pi) => {
@@ -345,11 +346,11 @@ function recomputeSegments() {
 
 // ── Mise à jour immédiate, légère (frappe) ────────────────────────────────────────────────────
 // Affiche le texte tapé tout de suite : texte des spans + segments, SANS toucher aux badges ni
-// aux marges de placement (placeWordAt) — aucun getBoundingClientRect ici, donc aucune des
+// aux marges de placement (merde_claude_placeWordAt) — aucun getBoundingClientRect ici, donc aucune des
 // cascades qui faisaient "tout bouger" à chaque touche. Le placement propre (badges, décalages)
 // arrive séparément, 1s après la dernière frappe (scheduleRebuild, voir plus bas).
-// Marque volontairement `st.text` en retard sur le mot réellement affiché, pour que syncParagraph
-// (appelé plus tard par rebuildDOM) détecte le mot à replacer — voir son usage de `st.text` pour
+// Marque volontairement `st.text` en retard sur le mot réellement affiché, pour que merde_claude_syncParagraph
+// (appelé plus tard par merde_claude_rebuildDOM) détecte le mot à replacer — voir son usage de `st.text` pour
 // trouver `startIdx`.
 function quickSyncParagraph(ps, words) {
   const wordState = ps.wordState;
@@ -384,7 +385,7 @@ function quickSyncParagraph(ps, words) {
       spaceEl = document.createTextNode(' ');
       paraEl.appendChild(spaceEl);
     }
-    // text: '' volontaire (jamais égal à w) : force syncParagraph à replacer TOUT ce paragraphe
+    // text: '' volontaire (jamais égal à w) : force merde_claude_syncParagraph à replacer TOUT ce paragraphe
     // à la prochaine passe différée, badges compris.
     newState.push({ span, spaceEl, beforeEl: null, afterEl: null, text: '', naturalX: 0, _badgeXAfter: 0 });
   });
@@ -409,7 +410,7 @@ function quickSyncParagraphCount() {
   if (newCount === oldCount + 1) {
     // scission : cursorIdx est juste après le \n inséré, donc au tout début du second morceau.
     // Le nouveau paragraphe hérite provisoirement de la page de son voisin — corrigé, si besoin,
-    // par le prochain rebuildDOM (seul endroit qui recalcule la frontière gauche/droite).
+    // par le prochain merde_claude_rebuildDOM (seul endroit qui recalcule la frontière gauche/droite).
     const pi = paragraphIndexAt(cursorIdx) - 1;
     const page = paraStates[pi].page;
     quickSyncParagraph(paraStates[pi], paragraphs[pi].split(' '));
@@ -436,7 +437,7 @@ function quickSyncParagraphCount() {
     return false;
   }
 
-  rebuildDOM();
+  merde_claude_rebuildDOM();
   return true;
 }
 
@@ -444,21 +445,21 @@ function quickSync() {
   const paragraphs = fullText.split('\n');
   if (paraStates.length !== paragraphs.length) {
     const didFullRebuild = quickSyncParagraphCount();
-    if (!didFullRebuild) recomputeSegments();
+    if (!didFullRebuild) merde_claude_recomputeSegments();
     return didFullRebuild;
   }
   // Une frappe normale (lettre, espace, backspace dans un mot) ne touche jamais qu'UN seul
   // paragraphe, celui du curseur — pas la peine de reparcourir tout le document à chaque touche.
   const pi = paragraphIndexAt(cursorIdx);
   quickSyncParagraph(paraStates[pi], paragraphs[pi].split(' '));
-  recomputeSegments();
+  merde_claude_recomputeSegments();
   return false;
 }
 
 // Squelette des tokens DOM (offsets, découpage mots), reconstruit depuis fullText (toute la
-// fenêtre chargée, cf. plus haut) — before/after (distances) remplis ensuite par applyProximites()
+// fenêtre chargée, cf. plus haut) — before/after (distances) remplis ensuite par merde_claude_applyProximites()
 // une fois les proximités connues.
-function buildTokens(text) {
+function merde_claude_buildTokens(text) {
   const tokens = [];
   let i = 0;
   let offset = 0;
@@ -475,7 +476,7 @@ function buildTokens(text) {
   return tokens;
 }
 
-let TOKENS = buildTokens(fullText);
+let TOKENS = merde_claude_buildTokens(fullText);
 
 // Horodatage réel (ms depuis le chargement de la page) sur chaque ligne de log — sert à repérer
 // OÙ se situe un délai (attente IPC pywebview, promesse analyze(), boucle DOM synchrone...) sans
@@ -492,7 +493,7 @@ function logError(context, err) {
   }
 }
 
-function applyProximites(prox) {
+function merde_claude_applyProximites(prox) {
   const byOffset = new Map(); // offset du mot -> { before, after, beforePair, afterPair }
   prox.forEach(({ offset_a, offset_b, distance }) => {
     const pairId = `${offset_a}:${offset_b}`; // stable pour ce couple, sert au survol (data-pair)
@@ -524,13 +525,13 @@ function applyProximites(prox) {
     if ('after'  in entry) { t.after  = entry.after;  t.afterPair  = entry.afterPair; }
   });
   const matched = TOKENS.filter(t => t.before !== null || t.after !== null).length;
-  dlog(`applyProximites: TOKENS.length=${TOKENS.length}, byOffset.size=${byOffset.size}, matched=${matched}`);
-  rebuildDOM(true);
-  clipOverflowParagraphs();  // AVANT markOrphanBadges : un partenaire caché par la coupure de bas
+  dlog(`merde_claude_applyProximites: TOKENS.length=${TOKENS.length}, byOffset.size=${byOffset.size}, matched=${matched}`);
+  merde_claude_rebuildDOM(true);
+  merde_claude_clipOverflowParagraphs();  // AVANT merde_claude_markOrphanBadges : un partenaire caché par la coupure de bas
                              // de page doit compter comme absent, pas comme présent
-  markOrphanBadges();
+  merde_claude_markOrphanBadges();
   const nbBadges = PAGE_LEFT.badgeLayer.children.length + PAGE_RIGHT.badgeLayer.children.length;
-  dlog(`applyProximites: badges dans le DOM apres rebuildDOM = ${nbBadges}`);
+  dlog(`merde_claude_applyProximites: badges dans le DOM apres merde_claude_rebuildDOM = ${nbBadges}`);
   setCursor(cursorIdx, false, true);  // silentPairs : pas de clic réel, ne pas allumer d'exergue
   reveal();
 }
@@ -550,11 +551,11 @@ function applyProximites(prox) {
 //     token 'x' (ignored, non significatif) n'entre jamais dans un groupe de canon. Distance =
 //     écart en om (PAS en o) ; seuil propre au canon, lu une seule fois à sa première rencontre
 //     et gardé sur l'entrée de la Map (jamais relu à chaque token).
-// Retourne directement la liste prox (offset_a/offset_b/distance) attendue par applyProximites —
+// Retourne directement la liste prox (offset_a/offset_b/distance) attendue par merde_claude_applyProximites —
 // offset_b ne peut pas se déduire de offset_a + distance : distance est en om, offset_a/offset_b
 // doivent être les offsets absolus (o) réels des deux tokens pour matcher correctement contre
-// TOKENS (construit en o, cf. buildTokens).
-function buildTokenIndex(tokens) {
+// TOKENS (construit en o, cf. merde_claude_buildTokens).
+function merde_claude_buildTokenIndex(tokens) {
   let pos = 0, posMot = 0;
   const parCanon = new Map(); // canon_id -> { seuil, last }
   const prox = [];
@@ -575,18 +576,18 @@ function buildTokenIndex(tokens) {
       if (dist <= entry.seuil) {
         entry.last.a = dist;
         t.b = dist;
-        prox.push({ offset_a: entry.last.o, offset_b: t.o, distance: dist });
+        prox.push({ offset_a: entry.last.o, offset_b: t.o, distance: dist })
       }
       entry.last = t;
     } else {
-      parCanon.set(t.c, { seuil: SEUIL_PER_CANON[t.c] ?? SEUIL, last: t });
+      parCanon.set(t.c, { seuil: SEUIL_PER_CANON[t.c] ?? SEUIL_DEFAUT, last: t })
     }
   }
   return prox;
 }
 
 // Bascule splash -> page une seule fois, la première fois que texte ET badges sont prêts
-// ensemble (paraStates vide => tout premier passage de rebuildDOM(true) ci-dessus, qui a
+// ensemble (paraStates vide => tout premier passage de merde_claude_rebuildDOM(true) ci-dessus, qui a
 // construit la page en entier vu qu'aucun paraState n'existait encore).
 let revealed = false;
 function reveal() {
@@ -800,7 +801,7 @@ function render(info) {
 }
 
 // silentPairs=true : ne touche pas à l'exergue (cursorPairIds) — sert au réaffichage du curseur
-// après un rebuild (rebuildDOM, applyProximites) où la position n'a pas réellement bougé sous
+// après un rebuild (merde_claude_rebuildDOM, merde_claude_applyProximites) où la position n'a pas réellement bougé sous
 // l'action de l'utilisateur, pour ne pas allumer une proximité que personne n'a cliquée.
 function setCursor(idx, keepAnchor, silentPairs) {
   cursorIdx = clampIdx(idx);
@@ -904,15 +905,15 @@ function nextWordBoundary(idx, dir) {
 // n'importe quel autre caractère, sans cas particulier.
 
 // Débounce du PLACEMENT (badges, décalages de marge) : quickSync() a déjà affiché le texte tapé
-// tout de suite (voir plus haut) ; ici on ne fait que différer la passe coûteuse (placeWordAt,
+// tout de suite (voir plus haut) ; ici on ne fait que différer la passe coûteuse (merde_claude_placeWordAt,
 // mesures DOM) de 1s après la dernière frappe, pour éviter la cascade visuelle à chaque touche.
 let rebuildDebounceTimer = null;
 function scheduleRebuild() {
   clearTimeout(rebuildDebounceTimer);
   rebuildDebounceTimer = setTimeout(() => {
     rebuildDebounceTimer = null;
-    rebuildDOM();
-    clipOverflowParagraphs();
+    merde_claude_rebuildDOM();
+    merde_claude_clipOverflowParagraphs();
     setCursor(cursorIdx, false);
   }, 1000);
 }
@@ -987,9 +988,9 @@ function refreshActivePairs() {
 
 // Un badge est "orphelin" quand son partenaire (même data-pair) n'existe pas dans le DOM — cas
 // normal : le partenaire est hors de la portion visible actuelle. Appelé après chaque
-// rebuildDOM(true), donc après que tous les badges d'une passe ont été (re)créés.
-function markOrphanBadges() {
-  // Un badge caché par clipOverflowParagraphs (visibility:hidden, bas de page) compte comme
+// merde_claude_rebuildDOM(true), donc après que tous les badges d'une passe ont été (re)créés.
+function merde_claude_markOrphanBadges() {
+  // Un badge caché par merde_claude_clipOverflowParagraphs (visibility:hidden, bas de page) compte comme
   // absent — son partenaire visible doit être marqué orphelin, pas traité comme une vraie paire.
   const isVisible = el => el.style.visibility !== 'hidden';
   const countByPair = new Map();
@@ -1008,7 +1009,7 @@ function markOrphanBadges() {
 // la même page) passent en visibility:hidden — jamais de ligne affichée à moitié, cachée par le
 // footer noir. visibility (pas display:none) : garde la boîte de layout, comme #pages.hidden,
 // pour ne pas fausser les mesures DOM des passes suivantes.
-function clipOverflowParagraphs() {
+function merde_claude_clipOverflowParagraphs() {
   // Limite = bas du conteneur #pages (borné par flex, cf. CSS), PAS bas de .page lui-même —
   // .page n'est jamais étiré (align-items:flex-start) : sa hauteur est celle de SON contenu,
   // donc toujours >= à lui-même, "bottom > limit" ne se déclenchait quasiment jamais.
@@ -1039,7 +1040,7 @@ function clipOverflowParagraphs() {
 }
 
 // Token JS (span space-split) qui contient charIdx, ou null (entre deux mots) — même recherche
-// par offset que applyProximites, réutilisée ici pour retrouver la paire depuis le curseur.
+// par offset que merde_claude_applyProximites, réutilisée ici pour retrouver la paire depuis le curseur.
 function tokenAt(charIdx) {
   let lo = 0, hi = TOKENS.length - 1, found = -1;
   while (lo <= hi) {
@@ -1204,31 +1205,239 @@ function updatePageLine() {
   cursorEl.style.width = Math.max(size * 100, 0.5) + '%';
 }
 
-function startWithRealText() {
+/*- Point d'entrée -*/
+function textRender() {
+  window.pywebview.api.load_window().then(({ TOKENS, total_chars, firstTokenId }) => {
+    let indexFirstToken
+    [TOKENS, indexFirstToken] = prepareTokens(TOKENS, firstTokenId)
+    buildDOM(TOKENS, indexFirstToken)
+    reveal()
+  })
+}
+
+function prepareTokens(TOKENS, firstTokenId){
+  let pos = 0, posMot = 0;
+  let indexFirstToken;
+  const parCanon = new Map(); // canon_id -> { seuil, last }
+  TOKENS = TOKENS.map((token, idx) => {
+    if (token.id == firstTokenId) {
+      indexFirstToken = idx
+    }
+    token.idx = idx
+    token.o = pos
+    const twidth = token.w + token.s.length
+    pos += twidth
+    if (!token.t) return token // ponctuation
+    // offset mot
+    token.om = posMot
+    posMot += twidth
+    if (token.x) return token // ignoré
+
+    // Canon
+    const entry = parCanon.get(token.c)
+    if (entry) {
+      // canon déjà rencontré : vérifie la proximité avec son dernier token
+      let dist
+      if ((dist = token.om - entry.last.om) < entry.seuil) {
+        entry.last.aft = dist   // :after du token précédent
+        token.bef = dist        // :before du token courant
+      }
+      entry.last = token // dernier de son canon
+    } else {
+      // premier token du canon : crée le canon, enregistre son seuil
+      parCanon.set(token.c, { seuil: (SEUIL_PER_CANON[token.c] ?? SEUIL_DEFAUT) + 1, last: token });
+    }
+    return token;
+  })
+  return [TOKENS, indexFirstToken]
+}
+
+/**
+ * 
+ * ==================================================================
+ * 
+ *          GRANDE FONCTION DE CONSTRUCTION DU DOM 
+ * 
+ * ==================================================================
+ */
+function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
+
+  function buildNewParagraph() {
+    return Div('para', CURRENT_PAGE.textEl)
+  }
+  function buildNewTokenSpan(params){
+    return Span('word', params.in, params.content)
+  }
+  function currentBottom(page){
+    return 0 + page.pageEl.getBoundingClientRect().bottom
+  }
+  function buildNewBadge(params){
+    const b = Div('badge', params.page.badgeLayer)
+    b.textContent = params.value
+    const r = params.span.getBoundingClientRect()
+    const pr = params.page.boundingRect
+    b.style.left  = px(r.left - pr.left)
+    b.style.top   = px(params.before ? r.top - pr.top - 14 : r.bottom - pr.top + 2)
+    return b
+  }
+
+  function initCurrentPage(page){
+    page.boundingRect = page.pageEl.getBoundingClientRect()
+    page.left = page.boundingRect.left
+    page.isRight = (page.side == 'right')
+    page.rightLimit = page.pageEl.clientWidth - parseFloat(getComputedStyle(page.pageEl).paddingRight)
+    let PageBottom = currentBottom(page)
+    return [page, PageBottom]
+  }
+
+  // Nettoyage
+  PAGE_LEFT.textEl.innerHTML = ''
+  PAGE_RIGHT.textEl.innerHTML = ''
+
+  // On commence sur la page gauche
+  let [CURRENT_PAGE, PageBottom] = initCurrentPage(PAGE_LEFT)
+  let currentParagraph = buildNewParagraph()
+  let badgeX = 0, prevTop = null // décalage porté d'un mot à l'autre sur la même ligne (anti-chevauchement badge)
+
+  /* ---          BOUCLE SUR TOUS LES TOKENS         --- */
+  for (tokenIdx, len = TOKENS.length; tokenIdx < len; ++tokenIdx) {
+    const token = TOKENS[tokenIdx]
+
+    if (token.m === '\n') {
+      currentParagraph = buildNewParagraph()
+      badgeX = 0; prevTop = null
+      continue
+    }
+
+    // Construction du SPAN pour le token
+    const span = buildNewTokenSpan({content: token.m, in: currentParagraph})
+    let rect = span.getBoundingClientRect()
+    let naturalX = rect.left - CURRENT_PAGE.left
+    let shiftX = Math.max(0, badgeX - naturalX)
+    if (naturalX + shiftX + rect.width > CURRENT_PAGE.rightLimit) {
+      // Badge dépasse => passage à la ligne forcé
+      currentParagraph.insertBefore(Br(), span)
+      badgeX = 0; prevTop = null
+      rect = span.getBoundingClientRect()
+      naturalX = rect.left - CURRENT_PAGE.left
+      shiftX = 0
+    }
+    if (prevTop !== null && Math.round(rect.top) !== Math.round(prevTop)){ 
+      badgeX = 0
+    }
+    prevTop = rect.top
+    // On ajuste la position du span du mots pour qu'il laisse la place à son
+    // badge before s'il existe
+    if ( shiftX ) {
+      span.style.marginLeft = px(shiftX)
+      rect.left += shiftX
+      rect.right += shiftX
+    }
+    // Si le prox avant existe, il faudra peut-être pousser le mot vers l'avant pour
+    // que le badge ait assez de place.
+    if ( token.bef ) {
+      // <= Le token a une proximité avant
+      // => Il faut analyser la position du badge
+      const badge = buildNewBadge({value: token.bef, span, before: true, page: CURRENT_PAGE})
+      const bw = badge.getBoundingClientRect().width
+      const mid = (rect.left - CURRENT_PAGE.left) + bw + GAP / 4
+      const centerShift = Math.max(0, mid - rect.width / 2 - naturalX - shiftX)
+      if ( centerShift ) {
+        // <= il y a un déplacement du centre
+        // => il faut déplacer le span du mot vers l'avant
+        span.style.marginLeft = px(shiftX + centerShift)
+        rect.left   += centerShift
+        rect.right  += centerShift
+      }
+    }
+    if ( token.aft ) {
+      // <= Le Token possède une proximité après
+      // => Il faut créer le badge là où on se trouve, et réserver sa place (hors flux normal)
+      const afterBadge = buildNewBadge({value: token.aft, span, before: false, page: CURRENT_PAGE})
+      const br = afterBadge.getBoundingClientRect()
+      badgeX = (br.right - CURRENT_PAGE.left) + GAP
+    }
+    var spanBottom = rect.bottom
+
+    // Extra-space après le mot
+    if (token.s) currentParagraph.appendChild(document.createTextNode(token.s))
+    
+
+    // Page suivante ou fin de remplissage de l'éditeur
+    if ( spanBottom > PageBottom ) {
+      if ( CURRENT_PAGE.isRight) {
+        return true // FIN TEXTE LONG
+      } else {
+       [CURRENT_PAGE, PageBottom] = initCurrentPage(PAGE_RIGHT)
+        currentParagraph = buildNewParagraph()
+        badgeX = 0; prevTop = null
+      }
+    }
+
+  }
+  return true // FIN TEXTE COURT
+} // /buildDOM
+
+
+
+function Div(css, container, content){
+  const p = document.createElement('DIV')
+  p.className = css
+  container.appendChild(p)
+  return p
+}
+function Span(css, container, content){
+  const s = document.createElement('SPAN')
+  s.className = css
+  s.textContent = content
+  container.appendChild(s)
+  return s
+}
+function Br(params){
+  const br = document.createElement('BR')
+  params?.in?.appendChild(br)
+  return bt
+}
+function px(nombre) { return String(nombre) + 'px' }
+
+
+
+
+
+
+
+
+
+
+
+
+
+// LA MERDE DE CLAUDE, SOUS CETTE LIGNE
+function merde_claude_startWithRealText() {
   window.pywebview.api.load_window().then(({ tokens, total_chars, start_offset }) => {
     windowTotalChars  = total_chars;
     windowStartOffset = start_offset;
     // tokens : fenêtre brute entière (id/mot/longueur/wspace/canon_id/ignored/is_alphanum, alias
     // courts i/m/w/s/c/x/t — cf. app/db.py). Chaque ligne EST un token entier : jamais de coupure
-    // en tête ni en fin. Passe 1 (buildTokenIndex) : offsets + proximités sur TOUTE la fenêtre,
+    // en tête ni en fin. Passe 1 (merde_claude_buildTokenIndex) : offsets + proximités sur TOUTE la fenêtre,
     // avant tout rendu DOM — un before/after peut référencer un mot qui ne tiendra pas à l'écran.
-    const prox = buildTokenIndex(tokens);
+    const prox = merde_claude_buildTokenIndex(tokens);
     // Passe 2 : DOM construit depuis le premier mot de la fenêtre, sur tout le texte chargé —
-    // clipOverflowParagraphs (appelé par applyProximites) décide seul ce qui reste visible à
+    // merde_claude_clipOverflowParagraphs (appelé par merde_claude_applyProximites) décide seul ce qui reste visible à
     // l'écran, jamais un pré-découpage par nombre de caractères.
     fullText = tokens.map(t => t.m + t.s).join('');
-    TOKENS = buildTokens(fullText);
+    TOKENS = merde_claude_buildTokens(fullText);
     updatePageLine();
     // Affichage à partir des tokens déjà en base (offset/proximités calculés ici, en JS) : plus
     // d'attente du modèle spaCy pour montrer texte + badges, plus de second passage Python
     // (ProxEngine/analyze()) derrière — supprimé 2026-07-16, il produisait un rendu différent du
     // premier (décalages de mots incohérents, cf. `_dev/screenshots/2026-07-16-pass*`).
-    applyProximites(prox);  // appelle déjà reveal() en interne
+    merde_claude_applyProximites(prox);  // appelle déjà reveal() en interne
   });
 }
 
 if (window.pywebview && window.pywebview.api) {
-  startWithRealText();
+  textRender();
 } else {
-  window.addEventListener('pywebviewready', startWithRealText);
+  window.addEventListener('pywebviewready', textRender);
 }
