@@ -493,99 +493,6 @@ function logError(context, err) {
   }
 }
 
-function merde_claude_applyProximites(prox) {
-  const byOffset = new Map(); // offset du mot -> { before, after, beforePair, afterPair }
-  prox.forEach(({ offset_a, offset_b, distance }) => {
-    const pairId = `${offset_a}:${offset_b}`; // stable pour ce couple, sert au survol (data-pair)
-    const a = byOffset.get(offset_a) || {};
-    a.after = distance;
-    a.afterPair = pairId;
-    byOffset.set(offset_a, a);
-    const b = byOffset.get(offset_b) || {};
-    b.before = distance;
-    b.beforePair = pairId;
-    byOffset.set(offset_b, b);
-  });
-  TOKENS.forEach(t => { t.before = null; t.after = null; t.beforePair = null; t.afterPair = null; });
-  // TOKENS trié par offset croissant : recherche du token qui CONTIENT chaque offset spaCy, pas
-  // égalité stricte — un mot élidé ("j'ai") est un seul token JS (span entier) mais spaCy le
-  // scinde en "j'" + "ai" ; l'offset spaCy de "ai" tombe alors À L'INTÉRIEUR du token JS "j'ai",
-  // pas sur son offset de départ.
-  byOffset.forEach((entry, pyOffset) => {
-    let lo = 0, hi = TOKENS.length - 1, found = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (TOKENS[mid].offset <= pyOffset) { found = mid; lo = mid + 1; }
-      else hi = mid - 1;
-    }
-    if (found === -1) return;
-    const t = TOKENS[found];
-    if (pyOffset >= t.offset + t.forme.length) return; // tombe hors mot (espace/saut de ligne)
-    if ('before' in entry) { t.before = entry.before; t.beforePair = entry.beforePair; }
-    if ('after'  in entry) { t.after  = entry.after;  t.afterPair  = entry.afterPair; }
-  });
-  const matched = TOKENS.filter(t => t.before !== null || t.after !== null).length;
-  dlog(`merde_claude_applyProximites: TOKENS.length=${TOKENS.length}, byOffset.size=${byOffset.size}, matched=${matched}`);
-  merde_claude_rebuildDOM(true);
-  merde_claude_clipOverflowParagraphs();  // AVANT merde_claude_markOrphanBadges : un partenaire caché par la coupure de bas
-                             // de page doit compter comme absent, pas comme présent
-  merde_claude_markOrphanBadges();
-  const nbBadges = PAGE_LEFT.badgeLayer.children.length + PAGE_RIGHT.badgeLayer.children.length;
-  dlog(`merde_claude_applyProximites: badges dans le DOM apres merde_claude_rebuildDOM = ${nbBadges}`);
-  setCursor(cursorIdx, false, true);  // silentPairs : pas de clic réel, ne pas allumer d'exergue
-  reveal();
-}
-
-// ── Tokens bruts reçus de load_window() (id/mot/longueur/wspace/canon_id/ignored/is_alphanum,
-// alias courts i/m/w/s/c/x/t — cf. app/db.py) : UNE SEULE passe, en JS, jamais en Python (mesuré
-// 2026-07-16 : différence négligeable en absolu sur 7000 tokens, mais nécessaire ici aussi pour
-// le recalcul en direct pendant la frappe — un seul endroit qui porte cette logique). Calcule,
-// pour chaque token, dans l'ordre du texte :
-//   - o  : offset absolu (caractères, TOUS les tokens, ponctuation comprise).
-//   - om : offset ENTRE MOTS — seuls les tokens 't' (is_alphanum) l'avancent ; la ponctuation
-//     n'y contribue jamais (décision utilisateur 2026-07-17 : les distances entre mots ne
-//     doivent compter QUE des mots).
-//   - before/after ('b'/'a', distances) : par canon, un seul token "dernier vu" gardé (pas tout
-//     l'historique des occurrences — si un jour il faut la liste complète des tokens d'un canon,
-//     revoir ce choix, cf. discussion 2026-07-17), comparé au token courant du même canon. Un
-//     token 'x' (ignored, non significatif) n'entre jamais dans un groupe de canon. Distance =
-//     écart en om (PAS en o) ; seuil propre au canon, lu une seule fois à sa première rencontre
-//     et gardé sur l'entrée de la Map (jamais relu à chaque token).
-// Retourne directement la liste prox (offset_a/offset_b/distance) attendue par merde_claude_applyProximites —
-// offset_b ne peut pas se déduire de offset_a + distance : distance est en om, offset_a/offset_b
-// doivent être les offsets absolus (o) réels des deux tokens pour matcher correctement contre
-// TOKENS (construit en o, cf. merde_claude_buildTokens).
-function merde_claude_buildTokenIndex(tokens) {
-  let pos = 0, posMot = 0;
-  const parCanon = new Map(); // canon_id -> { seuil, last }
-  const prox = [];
-  for (const t of tokens) {
-    t.o = pos;
-    pos += t.w + t.s.length;
-
-    if (!t.t) continue; // ponctuation : n'avance jamais om, n'entre jamais dans un canon
-
-    t.om = posMot;
-    posMot += t.w + t.s.length;
-
-    if (t.x) continue; // pas significatif : jamais dans un groupe canon
-
-    const entry = parCanon.get(t.c);
-    if (entry) {
-      const dist = t.om - entry.last.om;
-      if (dist <= entry.seuil) {
-        entry.last.a = dist;
-        t.b = dist;
-        prox.push({ offset_a: entry.last.o, offset_b: t.o, distance: dist })
-      }
-      entry.last = t;
-    } else {
-      parCanon.set(t.c, { seuil: SEUIL_PER_CANON[t.c] ?? SEUIL_DEFAUT, last: t })
-    }
-  }
-  return prox;
-}
-
 // Bascule splash -> page une seule fois, la première fois que texte ET badges sont prêts
 // ensemble (paraStates vide => tout premier passage de merde_claude_rebuildDOM(true) ci-dessus, qui a
 // construit la page en entier vu qu'aucun paraState n'existait encore).
@@ -984,24 +891,6 @@ function refreshActivePairs() {
     document.querySelectorAll(`.badge[data-pair="${id}"]`).forEach(el => el.classList.add('active'));
   });
   document.getElementById('pages').classList.toggle('has-exergue', ids.size > 0);
-}
-
-// Un badge est "orphelin" quand son partenaire (même data-pair) n'existe pas dans le DOM — cas
-// normal : le partenaire est hors de la portion visible actuelle. Appelé après chaque
-// merde_claude_rebuildDOM(true), donc après que tous les badges d'une passe ont été (re)créés.
-function merde_claude_markOrphanBadges() {
-  // Un badge caché par merde_claude_clipOverflowParagraphs (visibility:hidden, bas de page) compte comme
-  // absent — son partenaire visible doit être marqué orphelin, pas traité comme une vraie paire.
-  const isVisible = el => el.style.visibility !== 'hidden';
-  const countByPair = new Map();
-  document.querySelectorAll('.badge[data-pair]').forEach(el => {
-    if (!isVisible(el)) return;
-    countByPair.set(el.dataset.pair, (countByPair.get(el.dataset.pair) || 0) + 1);
-  });
-  document.querySelectorAll('.badge[data-pair]').forEach(el => {
-    if (!isVisible(el)) return;
-    el.classList.toggle('orphan', (countByPair.get(el.dataset.pair) || 0) === 1);
-  });
 }
 
 // Coupure nette en bas de page : dès qu'un mot commence après la limite (hauteur de .page moins
@@ -1411,30 +1300,6 @@ function px(nombre) { return String(nombre) + 'px' }
 
 
 
-
-// LA MERDE DE CLAUDE, SOUS CETTE LIGNE
-function merde_claude_startWithRealText() {
-  window.pywebview.api.load_window().then(({ tokens, total_chars, start_offset }) => {
-    windowTotalChars  = total_chars;
-    windowStartOffset = start_offset;
-    // tokens : fenêtre brute entière (id/mot/longueur/wspace/canon_id/ignored/is_alphanum, alias
-    // courts i/m/w/s/c/x/t — cf. app/db.py). Chaque ligne EST un token entier : jamais de coupure
-    // en tête ni en fin. Passe 1 (merde_claude_buildTokenIndex) : offsets + proximités sur TOUTE la fenêtre,
-    // avant tout rendu DOM — un before/after peut référencer un mot qui ne tiendra pas à l'écran.
-    const prox = merde_claude_buildTokenIndex(tokens);
-    // Passe 2 : DOM construit depuis le premier mot de la fenêtre, sur tout le texte chargé —
-    // merde_claude_clipOverflowParagraphs (appelé par merde_claude_applyProximites) décide seul ce qui reste visible à
-    // l'écran, jamais un pré-découpage par nombre de caractères.
-    fullText = tokens.map(t => t.m + t.s).join('');
-    TOKENS = merde_claude_buildTokens(fullText);
-    updatePageLine();
-    // Affichage à partir des tokens déjà en base (offset/proximités calculés ici, en JS) : plus
-    // d'attente du modèle spaCy pour montrer texte + badges, plus de second passage Python
-    // (ProxEngine/analyze()) derrière — supprimé 2026-07-16, il produisait un rendu différent du
-    // premier (décalages de mots incohérents, cf. `_dev/screenshots/2026-07-16-pass*`).
-    merde_claude_applyProximites(prox);  // appelle déjà reveal() en interne
-  });
-}
 
 if (window.pywebview && window.pywebview.api) {
   textRender();

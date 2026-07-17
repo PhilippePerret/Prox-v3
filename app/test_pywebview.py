@@ -121,7 +121,10 @@ class TestAPI:
         # découper le texte brut (cf. suppression d'offset_of_mot 2026-07-16, toujours valable).
         total_chars = len(TEXTE_SOURCE.read_text(encoding="utf-8"))
         start_offset = db.char_offset_before(self._db, start) if tokens else 0
-        return {'tokens': tokens, 'total_chars': total_chars, 'start_offset': start_offset}
+        # TOKENS/firstTokenId : noms attendus par textRender() (test.js) — start = id du premier
+        # token réellement chargé (recalculé plus haut si repli sur first_token_id).
+        return {'TOKENS': tokens, 'total_chars': total_chars, 'start_offset': start_offset,
+                'firstTokenId': start}
 
     def debug_log(self, msg: str) -> None:
         # msg vient déjà préfixé "[Nms] ..." côté JS (performance.now()) — préfixe ici avec
