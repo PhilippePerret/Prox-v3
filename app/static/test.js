@@ -7,10 +7,11 @@ const GAP = 12;
 // possible ; à garder synchronisé si la valeur change côté serveur).
 const SEUIL = 1500;
 
-// Longueur visible ciblée (caractères) — VISIBLE_LEN. Sert uniquement à choisir où couper entre
-// tokens visibles et cachés dans la fenêtre reçue de load_window() : jamais en tranchant un
-// caractère, toujours à une frontière de token (cf. computeVisibleCount).
-const VISIBLE_LEN = 3000;
+// Seuil par canon (nourri plus tard depuis un outil d'analyse de corpus d'auteurs — vide pour
+// l'instant, cf. buildTokenIndex : tout canon retombe sur SEUIL par défaut tant qu'il n'a pas
+// d'entrée ici. Décision utilisateur 2026-07-17 : PAS une feature future, le seuil est par canon
+// depuis le principe, seul l'outil qui le calcule n'est pas encore branché).
+const SEUIL_PER_CANON = {};
 
 // Couleur badge/mot selon l'éloignement — 3 couleurs FIXES, pas de dégradé continu (décision
 // utilisateur 2026-07-16 : un dégradé produisait trop de cas illisibles). Valeurs de départ,
@@ -54,11 +55,13 @@ function scheduleHiddenInputClear() {
 }
 
 
-// fullText : portion VISIBLE/éditable seulement (2 pages, 3000 caractères — cf. __SPEC__.md).
-// hiddenTail : 3000 caractères supplémentaires après, jamais affichés ni éditables, envoyés à
-// analyze() en plus de fullText pour que les proximités avec la suite du texte soient détectées.
+// fullText : la fenêtre ENTIÈRE reçue de load_window() (7200 tokens, cf. test_pywebview.py) — plus
+// de split visible/caché (VISIBLE_LEN/hiddenTail supprimés 2026-07-17). Construction DOM en 2
+// passes (cf. buildTokenIndex/rebuildDOM) : la passe 1 calcule offsets+proximités sur toute la
+// fenêtre AVANT tout rendu (un before/after peut référencer un mot hors de ce qui tiendra à
+// l'écran) ; la passe 2 construit le DOM depuis le premier mot et remplit jusqu'à ce qu'il n'y ait
+// plus de place (clipOverflowParagraphs, déjà existant, décide seul ce qui reste visible).
 let fullText = '';
-let hiddenTail = '';
 
 const infoEl = document.getElementById('footer-info');
 
@@ -452,8 +455,9 @@ function quickSync() {
   return false;
 }
 
-// Squelette des tokens de la portion VISIBLE (offsets, découpage mots) — before/after (distances)
-// remplis ensuite par applyProximites() une fois les proximités connues.
+// Squelette des tokens DOM (offsets, découpage mots), reconstruit depuis fullText (toute la
+// fenêtre chargée, cf. plus haut) — before/after (distances) remplis ensuite par applyProximites()
+// une fois les proximités connues.
 function buildTokens(text) {
   const tokens = [];
   let i = 0;
@@ -473,9 +477,6 @@ function buildTokens(text) {
 
 let TOKENS = buildTokens(fullText);
 
-// Distances réelles (proximités lexicales), reçues de Python via window.pywebview.api.analyze.
-// `text` = fullText + hiddenTail : la portion cachée après compte pour détecter les proximités
-// mais ne produit jamais de token/span affiché (TOKENS ne couvre que la portion visible).
 // Horodatage réel (ms depuis le chargement de la page) sur chaque ligne de log — sert à repérer
 // OÙ se situe un délai (attente IPC pywebview, promesse analyze(), boucle DOM synchrone...) sans
 // avoir à deviner à partir du seul ordre des lignes.
@@ -534,49 +535,54 @@ function applyProximites(prox) {
   reveal();
 }
 
-// ── Tokens bruts reçus de load_window() (id/mot/longueur/wspace/canon_id/ignored, alias courts
-// i/m/w/s/c/x — cf. app/db.py) : offset relatif + proximités calculés ICI, en JS, jamais en
-// Python (mesuré 2026-07-16 : différence négligeable en absolu sur 7000 tokens, mais nécessaire
-// ici aussi pour le recalcul en direct pendant la frappe — un seul endroit qui porte cette
-// logique plutôt que deux implémentations à tenir synchronisées).
-function assignOffsets(tokens) {
-  let pos = 0;
+// ── Tokens bruts reçus de load_window() (id/mot/longueur/wspace/canon_id/ignored/is_alphanum,
+// alias courts i/m/w/s/c/x/t — cf. app/db.py) : UNE SEULE passe, en JS, jamais en Python (mesuré
+// 2026-07-16 : différence négligeable en absolu sur 7000 tokens, mais nécessaire ici aussi pour
+// le recalcul en direct pendant la frappe — un seul endroit qui porte cette logique). Calcule,
+// pour chaque token, dans l'ordre du texte :
+//   - o  : offset absolu (caractères, TOUS les tokens, ponctuation comprise).
+//   - om : offset ENTRE MOTS — seuls les tokens 't' (is_alphanum) l'avancent ; la ponctuation
+//     n'y contribue jamais (décision utilisateur 2026-07-17 : les distances entre mots ne
+//     doivent compter QUE des mots).
+//   - before/after ('b'/'a', distances) : par canon, un seul token "dernier vu" gardé (pas tout
+//     l'historique des occurrences — si un jour il faut la liste complète des tokens d'un canon,
+//     revoir ce choix, cf. discussion 2026-07-17), comparé au token courant du même canon. Un
+//     token 'x' (ignored, non significatif) n'entre jamais dans un groupe de canon. Distance =
+//     écart en om (PAS en o) ; seuil propre au canon, lu une seule fois à sa première rencontre
+//     et gardé sur l'entrée de la Map (jamais relu à chaque token).
+// Retourne directement la liste prox (offset_a/offset_b/distance) attendue par applyProximites —
+// offset_b ne peut pas se déduire de offset_a + distance : distance est en om, offset_a/offset_b
+// doivent être les offsets absolus (o) réels des deux tokens pour matcher correctement contre
+// TOKENS (construit en o, cf. buildTokens).
+function buildTokenIndex(tokens) {
+  let pos = 0, posMot = 0;
+  const parCanon = new Map(); // canon_id -> { seuil, last }
+  const prox = [];
   for (const t of tokens) {
     t.o = pos;
     pos += t.w + t.s.length;
-  }
-}
 
-// Ajoute 'b'/'a' (before/after) SEULEMENT aux tokens réellement en proximité — pas de clé posée
-// pour les autres. Un token 'x' (ignored) n'entre jamais dans un groupe de canon, même s'il
-// partage le canon d'un autre token. Par canon, les occurrences (déjà dans l'ordre du texte) sont
-// comparées deux à deux consécutivement : écart sous le seuil => 'a' sur la première, 'b' sur la
-// seconde. Nécessite que assignOffsets() ait déjà tourné sur la même liste.
-function assignProximites(tokens, seuil) {
-  const parCanon = new Map();
-  for (const t of tokens) {
-    if (t.x) continue;
-    if (!parCanon.has(t.c)) parCanon.set(t.c, []);
-    parCanon.get(t.c).push(t);
-  }
-  for (const occ of parCanon.values()) {
-    if (occ.length < 2) continue;
-    for (let k = 0; k < occ.length - 1; k++) {
-      const prev = occ[k], nxt = occ[k + 1];
-      const ecart = nxt.o - prev.o;
-      if (ecart < seuil) { prev.a = ecart; nxt.b = ecart; }
+    if (!t.t) continue; // ponctuation : n'avance jamais om, n'entre jamais dans un canon
+
+    t.om = posMot;
+    posMot += t.w + t.s.length;
+
+    if (t.x) continue; // pas significatif : jamais dans un groupe canon
+
+    const entry = parCanon.get(t.c);
+    if (entry) {
+      const dist = t.om - entry.last.om;
+      if (dist <= entry.seuil) {
+        entry.last.a = dist;
+        t.b = dist;
+        prox.push({ offset_a: entry.last.o, offset_b: t.o, distance: dist });
+      }
+      entry.last = t;
+    } else {
+      parCanon.set(t.c, { seuil: SEUIL_PER_CANON[t.c] ?? SEUIL, last: t });
     }
   }
-}
-
-// Nombre de tokens (préfixe de la liste) à considérer visibles : tous les tokens dont l'offset
-// de départ est < VISIBLE_LEN. Un token qui commence avant la limite mais la dépasse reste
-// entièrement visible (jamais coupé) — le suivant, qui commence à/après la limite, est caché.
-function computeVisibleCount(tokens) {
-  for (let k = 0; k < tokens.length; k++) {
-    if (tokens[k].o >= VISIBLE_LEN) return k;
-  }
-  return tokens.length;
+  return prox;
 }
 
 // Bascule splash -> page une seule fois, la première fois que texte ET badges sont prêts
@@ -1184,17 +1190,6 @@ document.addEventListener('keydown', e => {
 // ── Départ ─────────────────────────────────────────────────────────────────────────────────
 // Texte réel (assets/texte-modele.txt via load_window()) — point d'entrée exclusif via
 // `python -m app.test_pywebview` (cf. son docstring), toujours lancé avec pywebview.
-// Convertit les tokens (déjà passés par assignOffsets/assignProximites) en la forme attendue par
-// applyProximites (offset_a/offset_b/distance) — réutilise tel quel son matching par offset
-// (nécessaire pour les mots élidés, span JS entier vs plusieurs tokens spaCy) sans dupliquer
-// cette logique.
-function dbTokensToProx(tokens) {
-  const prox = [];
-  for (const t of tokens) {
-    if (t.a !== undefined) prox.push({ offset_a: t.o, offset_b: t.o + t.a, distance: t.a });
-  }
-  return prox;
-}
 
 // Position/largeur de la pageline : proportion du livre couverte par la fenêtre actuellement
 // chargée. Pas de navigation pour l'instant (boutons prev/next visibles mais désactivés — la
@@ -1204,7 +1199,7 @@ function updatePageLine() {
   const cursorEl = document.getElementById('pageline-cursor');
   if (!windowTotalChars) return;
   const pct  = windowStartOffset / windowTotalChars;
-  const size = (fullText.length + hiddenTail.length) / windowTotalChars;
+  const size = fullText.length / windowTotalChars;
   cursorEl.style.left  = (pct * 100) + '%';
   cursorEl.style.width = Math.max(size * 100, 0.5) + '%';
 }
@@ -1213,20 +1208,22 @@ function startWithRealText() {
   window.pywebview.api.load_window().then(({ tokens, total_chars, start_offset }) => {
     windowTotalChars  = total_chars;
     windowStartOffset = start_offset;
-    // tokens : fenêtre brute (visible + cachée pour les proximités), alias courts i/m/w/s/c/x —
-    // cf. app/db.py. Chaque ligne EST un token entier : jamais de coupure en tête ni en fin.
-    assignOffsets(tokens);
-    assignProximites(tokens, SEUIL);
-    const nbVisible = computeVisibleCount(tokens);
-    fullText   = tokens.slice(0, nbVisible).map(t => t.m + t.s).join('');
-    hiddenTail = tokens.slice(nbVisible).map(t => t.m + t.s).join('');
+    // tokens : fenêtre brute entière (id/mot/longueur/wspace/canon_id/ignored/is_alphanum, alias
+    // courts i/m/w/s/c/x/t — cf. app/db.py). Chaque ligne EST un token entier : jamais de coupure
+    // en tête ni en fin. Passe 1 (buildTokenIndex) : offsets + proximités sur TOUTE la fenêtre,
+    // avant tout rendu DOM — un before/after peut référencer un mot qui ne tiendra pas à l'écran.
+    const prox = buildTokenIndex(tokens);
+    // Passe 2 : DOM construit depuis le premier mot de la fenêtre, sur tout le texte chargé —
+    // clipOverflowParagraphs (appelé par applyProximites) décide seul ce qui reste visible à
+    // l'écran, jamais un pré-découpage par nombre de caractères.
+    fullText = tokens.map(t => t.m + t.s).join('');
     TOKENS = buildTokens(fullText);
     updatePageLine();
     // Affichage à partir des tokens déjà en base (offset/proximités calculés ici, en JS) : plus
     // d'attente du modèle spaCy pour montrer texte + badges, plus de second passage Python
     // (ProxEngine/analyze()) derrière — supprimé 2026-07-16, il produisait un rendu différent du
     // premier (décalages de mots incohérents, cf. `_dev/screenshots/2026-07-16-pass*`).
-    applyProximites(dbTokensToProx(tokens));  // appelle déjà reveal() en interne
+    applyProximites(prox);  // appelle déjà reveal() en interne
   });
 }
 

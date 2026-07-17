@@ -1,12 +1,18 @@
 """
 Base SQLite — une base par document (décidé 2026-07-15).
 
-Schéma acté (révisé 2026-07-16 — plus de calcul d'offset approximatif) :
+Schéma acté (révisé 2026-07-17 — ajout is_alphanum, plus de migration de schéma pendant la phase
+d'expérimentation : un changement de colonne se traite en réécrivant CREATE TABLE, jamais en ALTER
+TABLE — base existante à effacer par l'utilisateur si besoin, cf. décision explicite 2026-07-17) :
 - canons(id, canon, ignored) : forme canonique/lemme, globale au document.
-- tokens(id, mot, longueur, wspace, canon_id, ignored) : TOUS les tokens du texte, dans l'ordre —
-  mots ET ponctuation, y compris ceux que le filtre de significativité écarte (marqués
-  `ignored=1`, jamais absents de la séquence). `mot` = texte brut du token (spaCy `tok.text`).
-  `wspace` = séparateur réel après ce token (spaCy `tok.whitespace_` : '' ou ' ', jamais supposé).
+- tokens(id, mot, longueur, wspace, canon_id, ignored, is_alphanum) : TOUS les tokens du texte,
+  dans l'ordre — mots ET ponctuation, y compris ceux que le filtre de significativité écarte
+  (marqués `ignored=1`, jamais absents de la séquence). `mot` = texte brut du token (spaCy
+  `tok.text`). `wspace` = séparateur réel après ce token (spaCy `tok.whitespace_` : '' ou ' ',
+  jamais supposé). `is_alphanum` (spaCy `tok.is_alpha or tok.is_digit`) : distingue un vrai mot
+  (lettres OU chiffres, "à"/"12" comptent) de la ponctuation — distinct de `ignored`, qui mélange
+  "n'est pas un mot" ET "mot pas assez significatif" (cf. `significatif` ci-dessous) ; nécessaire
+  côté JS pour calculer l'offset ENTRE MOTS (`om`, cf. test.js) sans compter la ponctuation.
   Pas d'offset absolu persisté — un offset relatif se recalcule à la volée pour une fenêtre
   donnée en sommant `longueur + len(wspace)` des tokens qui précèdent dans cette fenêtre (section
   toujours indexée depuis 0, `id` sert d'ordre).
@@ -19,6 +25,8 @@ Envoi au frontend (IPC pywebview, JSON, plusieurs milliers de tokens par fenêtr
 raccourcies dès la lecture — alias posés dans le SELECT (`tokens_from`), jamais de passe de
 renommage séparée après coup.
   id -> i   mot -> m   longueur -> w   wspace -> s   canon_id -> c   ignored -> x
+  is_alphanum -> t  (pour "texte" ; alias 'a' déjà pris côté JS par la distance "after" posée sur
+  ces mêmes objets token, cf. test.js::buildTokenIndex)
 
 Offset relatif et proximités (avant/après, avec seuil) : calculés côté JS, jamais en Python —
 mesuré (2026-07-16, 7000 tokens synthétiques, même algo des deux côtés) : Python médiane 1.334ms,
@@ -38,12 +46,13 @@ CREATE TABLE IF NOT EXISTS canons (
 );
 
 CREATE TABLE IF NOT EXISTS tokens (
-    id       INTEGER PRIMARY KEY,
-    mot      TEXT NOT NULL,
-    longueur INTEGER NOT NULL,
-    wspace   TEXT NOT NULL DEFAULT '',
-    canon_id INTEGER NOT NULL REFERENCES canons(id),
-    ignored  BOOLEAN NOT NULL DEFAULT 0
+    id          INTEGER PRIMARY KEY,
+    mot         TEXT NOT NULL,
+    longueur    INTEGER NOT NULL,
+    wspace      TEXT NOT NULL DEFAULT '',
+    canon_id    INTEGER NOT NULL REFERENCES canons(id),
+    ignored     BOOLEAN NOT NULL DEFAULT 0,
+    is_alphanum BOOLEAN NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_canon_id ON tokens(canon_id);
@@ -92,17 +101,22 @@ def _canon_id(conn: sqlite3.Connection, canon: str) -> int:
 def replace_tokens(conn: sqlite3.Connection, doc) -> None:
     """Remplace le contenu de `tokens` par TOUS les tokens du doc spaCy — mots ET ponctuation,
     dans l'ordre du texte. `ignored` : filtre de significativité (is_alpha and (len>3 or verbe)),
-    marqué, jamais retiré de la séquence. Réécriture complète de la section à chaque appel :
-    l'ordre d'insertion (donc `id`) redonne l'ordre du texte, un offset absolu n'a jamais besoin
-    d'être stocké."""
+    marqué, jamais retiré de la séquence. `is_alphanum` : est-ce un mot du tout (lettres ou
+    chiffres), indépendamment de sa significativité — sert côté JS à calculer l'offset entre mots
+    sans compter la ponctuation (cf. tokens -> t dans le SELECT de `tokens_from`). Réécriture
+    complète de la section à chaque appel : l'ordre d'insertion (donc `id`) redonne l'ordre du
+    texte, un offset absolu n'a jamais besoin d'être stocké."""
     conn.execute("DELETE FROM tokens")
     for tok in doc:
         is_verb = tok.pos_ in ('VERB', 'AUX')
         significatif = tok.is_alpha and (len(tok.text) > 3 or is_verb)
+        is_alphanum = tok.is_alpha or tok.is_digit
         canon_id = _canon_id(conn, tok.lemma_.lower())
         conn.execute(
-            "INSERT INTO tokens(mot, longueur, wspace, canon_id, ignored) VALUES (?, ?, ?, ?, ?)",
-            (tok.text, len(tok.text), tok.whitespace_, canon_id, 0 if significatif else 1),
+            "INSERT INTO tokens(mot, longueur, wspace, canon_id, ignored, is_alphanum) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (tok.text, len(tok.text), tok.whitespace_, canon_id,
+             0 if significatif else 1, 1 if is_alphanum else 0),
         )
     conn.commit()
 
@@ -131,7 +145,8 @@ def tokens_from(conn: sqlite3.Connection, start_id: int, limit: int) -> list:
     courts posés directement dans le SELECT (cf. table en tête de fichier). Chaque ligne EST un
     token entier — aucune coupure possible en cours de fenêtre."""
     rows = conn.execute(
-        "SELECT id AS i, mot AS m, longueur AS w, wspace AS s, canon_id AS c, ignored AS x "
+        "SELECT id AS i, mot AS m, longueur AS w, wspace AS s, canon_id AS c, ignored AS x, "
+        "is_alphanum AS t "
         "FROM tokens WHERE id >= ? ORDER BY id LIMIT ?",
         (start_id, limit),
     ).fetchall()
