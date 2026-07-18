@@ -2,6 +2,10 @@
 
 // Distance FIXE entre deux mots
 const GAP = 12;
+// Distance entre le bord droit d'un badge "après" et le mot suivant qui en hérite comme plancher
+// de position (badgeX) — distincte de GAP (centre du mot/bord du badge, cf. plus bas), qui reste
+// inchangé. Décision utilisateur 2026-07-18.
+const BADGE_GAP = 8;
 
 // Seuil de proximité (dupliqué de app/config.py::SEUIL_DEFAUT — pas d'import Python->JS
 // possible ; à garder synchronisé si la valeur change côté serveur).
@@ -1175,10 +1179,8 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
   function buildNewBadge(params){
     const b = Div('badge', params.page.badgeLayer)
     b.textContent = params.value
-    const r = params.span.getBoundingClientRect()
-    const pr = params.page.boundingRect
-    b.style.left  = px(r.left - pr.left)
-    b.style.top   = px(params.before ? r.top - pr.top - 14 : r.bottom - pr.top + 2)
+    b.style.left = px(params.left)
+    b.style.top  = px(params.top)
     return b
   }
 
@@ -1216,56 +1218,58 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
       continue
     }
 
-    // Construction du SPAN pour le token
+    // Construction du SPAN pour le token — placement calqué sur placeWordAt (test.js.bak:85-144,
+    // algo de référence pixel-perfect) : jusqu'à 2 tentatives (ligne courante, puis ligne
+    // suivante si dépassement), un seul marginLeft posé à la fin, remesure DOM après (jamais de
+    // patch manuel de rect).
     const span = buildNewTokenSpan({content: token.m, in: currentParagraph})
-    let rect = spreadRect(span.getBoundingClientRect())
-    // Reset AVANT le calcul de shiftX : sinon le 1er mot d'une ligne wrappée naturellement par
-    // le CSS (donc jamais passée par le Br() forcé ci-dessous) hérite du badgeX de la ligne
-    // précédente et se retrouve décalé vers la droite.
-    if (prevTop !== null && Math.round(rect.top) !== Math.round(prevTop)){
-      badgeX = 0
-    }
-    let naturalX = rect.left - CURRENT_PAGE.left
-    let shiftX = Math.max(0, badgeX - naturalX)
-    if (naturalX + shiftX + rect.width > CURRENT_PAGE.rightLimit) {
-      // Badge dépasse => passage à la ligne forcé
-      currentParagraph.insertBefore(Br(), span)
-      badgeX = 0; prevTop = null
+    let rect, naturalX, wordX, beforeBadge = null
+    for (let attempt = 0; attempt < 2; attempt++) {
       rect = spreadRect(span.getBoundingClientRect())
-      naturalX = rect.left - CURRENT_PAGE.left
-      shiftX = 0
-    }
-    prevTop = rect.top
-    // On ajuste la position du span du mots pour qu'il laisse la place à son
-    // badge before s'il existe
-    if ( shiftX ) {
-      span.style.marginLeft = px(shiftX)
-      rect.left += shiftX
-      rect.right += shiftX
-    }
-    // Si le prox avant existe, il faudra peut-être pousser le mot vers l'avant pour
-    // que le badge ait assez de place.
-    if ( token.bef ) {
-      // <= Le token a une proximité avant
-      // => Il faut analyser la position du badge
-      const badge = buildNewBadge({value: token.bef, span, before: true, page: CURRENT_PAGE})
-      const bw = badge.getBoundingClientRect().width
-      const mid = (rect.left - CURRENT_PAGE.left) + bw + GAP / 4
-      const centerShift = Math.max(0, mid - rect.width / 2 - naturalX - shiftX)
-      if ( centerShift ) {
-        // <= il y a un déplacement du centre
-        // => il faut déplacer le span du mot vers l'avant
-        span.style.marginLeft = px(shiftX + centerShift)
-        rect.left   += centerShift
-        rect.right  += centerShift
+      // Reset sur wrap (naturel CSS ou forcé) : badgeX ne vaut que "sur la même ligne".
+      if (prevTop !== null && Math.round(rect.top) !== Math.round(prevTop)) {
+        badgeX = 0
       }
+      prevTop = rect.top
+      naturalX = rect.left - CURRENT_PAGE.left
+      // Un token qui n'est pas un mot (ponctuation) n'hérite jamais du badgeX d'un mot
+      // précédent : pas de place à réserver pour un badge devant une virgule, un point, etc.
+      // (décision utilisateur 2026-07-18 — évite l'espace visible avant une ponctuation qui
+      // devrait rester collée au mot précédent).
+      const actualX = token.t ? Math.max(naturalX, badgeX) : naturalX
+      wordX = actualX
+      if ( token.bef ) {
+        // <= Le token a une proximité avant : badge posé à actualX, mot recentré derrière lui
+        beforeBadge = buildNewBadge({
+          value: token.bef, page: CURRENT_PAGE,
+          left: actualX, top: rect.bottom - CURRENT_PAGE.boundingRect.top + 2
+        })
+        const bw = beforeBadge.getBoundingClientRect().width
+        const mid = actualX + bw + GAP / 4
+        wordX = Math.max(naturalX, mid - rect.width / 2)
+      }
+      if ( wordX + rect.width > CURRENT_PAGE.rightLimit && attempt === 0 ) {
+        // Badge ou mot dépasse => passage à la ligne forcé, on retente sur la ligne suivante
+        if (beforeBadge) { CURRENT_PAGE.badgeLayer.removeChild(beforeBadge); beforeBadge = null }
+        span.style.marginLeft = '0px'
+        currentParagraph.insertBefore(Br(), span)
+        badgeX = 0; prevTop = null
+        continue
+      }
+      break
     }
+    span.style.marginLeft = px(wordX - naturalX)
+    rect = spreadRect(span.getBoundingClientRect())
+
     if ( token.aft ) {
-      // <= Le Token possède une proximité après
-      // => Il faut créer le badge là où on se trouve, et réserver sa place (hors flux normal)
-      const afterBadge = buildNewBadge({value: token.aft, span, before: false, page: CURRENT_PAGE})
+      // <= Le token a une proximité après : badge posé au centre du mot (position finale, post-marginLeft)
+      const centerX = (rect.left - CURRENT_PAGE.left) + rect.width / 2
+      const afterBadge = buildNewBadge({
+        value: token.aft, page: CURRENT_PAGE,
+        left: centerX + GAP / 4, top: rect.bottom - CURRENT_PAGE.boundingRect.top + 2
+      })
       const br = afterBadge.getBoundingClientRect()
-      badgeX = (br.right - CURRENT_PAGE.left) + GAP
+      badgeX = Math.round(br.right - CURRENT_PAGE.left) + BADGE_GAP
     }
     var spanBottom = rect.bottom
 
