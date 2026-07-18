@@ -24,7 +24,7 @@ TABLE — base existante à effacer par l'utilisateur si besoin, cf. décision e
 Envoi au frontend (IPC pywebview, JSON, plusieurs milliers de tokens par fenêtre) : clés
 raccourcies dès la lecture — alias posés dans le SELECT (`tokens_from`), jamais de passe de
 renommage séparée après coup.
-  id -> i   mot -> m   longueur -> w   wspace -> s   canon_id -> c   ignored -> x
+  id -> i   mot -> m   longueur -> w   wspace -> s   canon (texte, via jointure) -> c   ignored -> x
   is_alphanum -> t  (pour "texte" ; alias 'a' déjà pris côté JS par la distance "after" posée sur
   ces mêmes objets token, cf. test.js::buildTokenIndex)
 
@@ -143,11 +143,15 @@ def char_offset_before(conn: sqlite3.Connection, token_id: int) -> int:
 def tokens_from(conn: sqlite3.Connection, start_id: int, limit: int) -> list:
     """Les `limit` tokens de `tokens` à partir de `start_id` (inclus), dans l'ordre — alias
     courts posés directement dans le SELECT (cf. table en tête de fichier). Chaque ligne EST un
-    token entier — aucune coupure possible en cours de fenêtre."""
+    token entier — aucune coupure possible en cours de fenêtre. `c` = texte du canon (jointure sur
+    `canons`), pas `canon_id` : `canon_id` est un entier auto-incrémenté à l'insertion, dépendant
+    de l'ordre d'apparition dans CETTE base — inutilisable comme clé stable côté JS (ex.
+    SEUIL_PER_CANON). Le texte du canon, lui, est stable quel que soit l'ordre d'insertion."""
     rows = conn.execute(
-        "SELECT id AS i, mot AS m, longueur AS w, wspace AS s, canon_id AS c, ignored AS x, "
-        "is_alphanum AS t "
-        "FROM tokens WHERE id >= ? ORDER BY id LIMIT ?",
+        "SELECT tok.id AS i, tok.mot AS m, tok.longueur AS w, tok.wspace AS s, can.canon AS c, "
+        "tok.ignored AS x, tok.is_alphanum AS t "
+        "FROM tokens tok JOIN canons can ON can.id = tok.canon_id "
+        "WHERE tok.id >= ? ORDER BY tok.id LIMIT ?",
         (start_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]

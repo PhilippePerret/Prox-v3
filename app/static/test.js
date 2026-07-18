@@ -15,7 +15,13 @@ const SEUIL_DEFAUT = 1500;
 // l'instant, cf. merde_claude_buildTokenIndex : tout canon retombe sur SEUIL par défaut tant qu'il n'a pas
 // d'entrée ici. Décision utilisateur 2026-07-17 : PAS une feature future, le seuil est par canon
 // depuis le principe, seul l'outil qui le calcule n'est pas encore branché).
-const SEUIL_PER_CANON = {};
+// Conjonctions de coordination, seuil 300 (décision utilisateur 2026-07-18, pour test visuel).
+// Clé = le canon (lemme, texte) — token.c est le texte du lemme (jointure côté
+// db.py::tokens_from), jamais l'id numérique canon_id, fragile car dépendant de l'ordre
+// d'insertion dans la base.
+const SEUIL_PER_CANON = {
+  mais: 300, ou: 300, et: 300, donc: 300, or: 300, ni: 300, car: 300,
+};
 
 // Couleur badge/mot selon l'éloignement — 3 couleurs FIXES, pas de dégradé continu (décision
 // utilisateur 2026-07-16 : un dégradé produisait trop de cas illisibles). Valeurs de départ,
@@ -94,11 +100,16 @@ const PAGES = ['left', 'right'].map(side => {
 });
 const [PAGE_LEFT, PAGE_RIGHT] = PAGES;
 
-// ── segments : la liste, dans l'ordre, de chaque unité du DOM (mot, espace, ou retour à la
-// ligne) avec sa plage [start, end) dans fullText — traduit un index de caractère en (noeud,
-// offset) et l'inverse. Un retour à la ligne occupe une position, comme un caractère, mais n'a
-// rien de mesurable à son propre emplacement (pas de glyphe) — voir rectForIndex.
+// ── segments : table indexée par position caractère (segments[12] = le segment qui couvre le
+// caractère 12) — accès direct O(1), pas de recherche. Chaque segment (mot, espace, ou retour à
+// la ligne) a aussi nextSeg/prevSeg (voisin dans l'ordre de lecture, pour parcourir sans revenir à
+// cette table). Construite dans buildDOM (test.js), une entrée par caractère, jamais recalculée
+// séparément.
 let segments = [];
+// wordSegmentsList : les mots uniquement (pas les espaces/sauts), un élément par mot, dans l'ordre
+// de lecture — construite EN MÊME TEMPS que segments (addSegment, dans buildDOM), pas par un
+// passage de filtre séparé après coup.
+let wordSegmentsList = [];
 
 // paraStates : suivi persistant, paragraphe par paragraphe puis mot par mot, du dernier rendu —
 // permet à merde_claude_rebuildDOM de ne retoucher que le paragraphe réellement affecté par une frappe (ni les
@@ -510,10 +521,7 @@ function reveal() {
 }
 
 function segmentAt(idx) {
-  for (const seg of segments) {
-    if (idx >= seg.start && idx <= seg.end) return seg;
-  }
-  return segments[segments.length - 1];
+  return segments[idx] ?? segments[segments.length - 1];
 }
 
 // Nœud à mesurer pour un segment-mot : son texte, ou le span lui-même s'il est vide (mot ""
@@ -558,9 +566,11 @@ function getCaretRect(node, offset) {
   return { left: r.left, top: r.top, bottom: r.bottom };
 }
 
-function nearestWord(fromSegIdx, dir) {
-  for (let i = fromSegIdx; i >= 0 && i < segments.length; i += dir) {
-    if (segments[i].isWord) return segments[i];
+function nearestWord(fromSeg, dir) {
+  let seg = fromSeg;
+  while (seg) {
+    if (seg.isWord) return seg;
+    seg = dir > 0 ? seg.nextSeg : seg.prevSeg;
   }
   return null;
 }
@@ -576,20 +586,19 @@ function rectForIndex(idx) {
   // sauter cette position jusqu'au mot du paragraphe suivant au lieu de l'afficher en fin de ligne
   // précédente. On force ici le rendu "fin de ligne précédente" dès que idx est le début d'un
   // segment de rupture, sans dépendre du segment que segmentAt aurait choisi.
-  const breakSeg = segments.find(s => s.isBreak && s.start === idx);
-  if (breakSeg) {
-    const w = nearestWord(segments.indexOf(breakSeg) - 1, -1);
+  const breakSeg = segments[idx];
+  if (breakSeg && breakSeg.isBreak && breakSeg.start === idx) {
+    const w = nearestWord(breakSeg.prevSeg, -1);
     if (w) return getCaretRect(wordNode(w), w.end - w.start);
   }
   const seg = segmentAt(idx);
   if (!seg.isWord) {
-    const segIdx = segments.indexOf(seg);
     if (idx === seg.end) {
-      const w = nearestWord(segIdx + 1, 1);
+      const w = nearestWord(seg.nextSeg, 1);
       if (w) return getCaretRect(wordNode(w), 0);
     }
     if (idx === seg.start) {
-      const w = nearestWord(segIdx - 1, -1);
+      const w = nearestWord(seg.prevSeg, -1);
       if (w) return getCaretRect(wordNode(w), w.end - w.start);
     }
   }
@@ -609,8 +618,8 @@ function describePosition(idx) {
     return `mot "${word}" — caractère ${offset}/${word.length} — ${where}`;
   }
   if (seg.isBreak) return `au niveau d'un retour à la ligne`;
-  const prevSeg = segments[segments.indexOf(seg) - 1];
-  const nextSeg = segments[segments.indexOf(seg) + 1];
+  const prevSeg = seg.prevSeg;
+  const nextSeg = seg.nextSeg;
   const beforeWord = prevSeg && prevSeg.isWord ? prevSeg.node.textContent : null;
   const afterWord  = nextSeg && nextSeg.isWord ? nextSeg.node.textContent : null;
   if (beforeWord && afterWord) return `espace entre "${beforeWord}" et "${afterWord}"`;
@@ -624,7 +633,7 @@ let cursorIdx = 0;
 let anchorIdx = null;
 let dragging  = false;
 
-function clampIdx(idx) { return Math.max(0, Math.min(idx, fullText.length)); }
+function clampIdx(idx) { return Math.max(0, Math.min(idx, segments.length)); }
 
 // Avance/recule d'un caractère, mais si cette position rend exactement au même endroit à l'écran
 // qu'avant (espace invisible en fin de ligne, largeur nulle) — saute directement d'un caractère de
@@ -653,9 +662,10 @@ function indexAtPoint(x, y) {
 
 // Page qui porte l'index donné (celle du paraState du paragraphe contenant idx).
 function pageForIdx(idx) {
-  const pi = paragraphIndexAt(idx);
-  const ps = paraStates[pi];
-  return ps ? ps.page : PAGE_LEFT;
+  const node = segmentAt(idx).node;
+  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  const pageEl = el.closest('.page');
+  return PAGES.find(p => p.pageEl === pageEl) || PAGE_LEFT;
 }
 
 function renderCursor() {
@@ -736,7 +746,7 @@ function logCursor() {
 }
 
 // ── Mots : bornes pour Alt+flèche (mot par mot) ───────────────────────────────────────────────
-function wordSegments() { return segments.filter(s => s.isWord); }
+function wordSegments() { return wordSegmentsList; }
 
 // ── Ligne visuelle (pour Home/End) : mots qui partagent le même haut de rectangle que idx ────
 function lineBoundsAt(idx) {
@@ -749,7 +759,7 @@ function lineBoundsAt(idx) {
       to = s.end;
     }
   });
-  if (from === null) return { from: 0, to: fullText.length };
+  if (from === null) return { from: 0, to: segments.length };
   return { from, to };
 }
 
@@ -793,17 +803,18 @@ function moveVertical(idx, dir) {
 }
 
 function paragraphBoundsAt(idx) {
-  const from = fullText.lastIndexOf('\n', idx - 1) + 1;
-  let to = fullText.indexOf('\n', idx);
-  if (to === -1) to = fullText.length;
-  return { from, to };
+  let s = segmentAt(idx);
+  while (s.prevSeg && !s.prevSeg.isBreak) s = s.prevSeg;
+  let e = segmentAt(idx);
+  while (e.nextSeg && !e.nextSeg.isBreak) e = e.nextSeg;
+  return { from: s.start, to: e.end };
 }
 
 function nextWordBoundary(idx, dir) {
   const ws = wordSegments();
   if (dir > 0) {
     for (const s of ws) if (s.start > idx) return s.start;
-    return fullText.length;
+    return segments.length;
   } else {
     let prev = 0;
     for (const s of ws) { if (s.start >= idx) break; prev = s.start; }
@@ -948,11 +959,11 @@ function tokenAt(charIdx) {
 }
 
 function updateCursorPairs() {
-  const t = tokenAt(cursorIdx);
+  const seg = segmentAt(cursorIdx);
   cursorPairIds = new Set();
-  if (t) {
-    if (t.beforePair) cursorPairIds.add(t.beforePair);
-    if (t.afterPair)  cursorPairIds.add(t.afterPair);
+  if (seg.isWord && seg.token) {
+    if (seg.token.befPair) cursorPairIds.add(seg.token.befPair);
+    if (seg.token.aftPair) cursorPairIds.add(seg.token.aftPair);
   }
   refreshActivePairs();
 }
@@ -1114,7 +1125,7 @@ function textRender() {
 }
 
 function prepareTokens(TOKENS, firstTokenId){
-  let pos = 0, posMot = 0;
+  let pos = 0, posMot = 0, pairCounter = 0;
   let indexFirstToken;
   const parCanon = new Map(); // canon_id -> { seuil, last }
   TOKENS = TOKENS.map((token, idx) => {
@@ -1137,13 +1148,20 @@ function prepareTokens(TOKENS, firstTokenId){
       // canon déjà rencontré : vérifie la proximité avec son dernier token
       let dist
       if ((dist = token.om - entry.last.om) < entry.seuil) {
-        entry.last.aft = dist   // :after du token précédent
-        token.bef = dist        // :before du token courant
+        const pairId = ++pairCounter
+        entry.last.aft = dist
+        entry.last.aftSeuil = entry.rawSeuil
+        entry.last.aftPair = pairId
+        token.bef = dist
+        token.befSeuil = entry.rawSeuil
+        token.befPair = pairId
       }
       entry.last = token // dernier de son canon
     } else {
-      // premier token du canon : crée le canon, enregistre son seuil
-      parCanon.set(token.c, { seuil: (SEUIL_PER_CANON[token.c] ?? SEUIL_DEFAUT) + 1, last: token });
+      // premier token du canon : crée le canon, enregistre son seuil (seuil : +1 pour que la
+      // comparaison < ci-dessus se comporte comme <=. rawSeuil : valeur réelle, pour la couleur).
+      const rawSeuil = SEUIL_PER_CANON[token.c] ?? SEUIL_DEFAUT
+      parCanon.set(token.c, { seuil: rawSeuil + 1, rawSeuil, last: token });
     }
     return token;
   })
@@ -1176,11 +1194,22 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
   function currentBottom(page){
     return 0 + page.pageEl.getBoundingClientRect().bottom
   }
+  // Relie seg au précédent (nextSeg/prevSeg) et remplit la table segments[start..end[ (borne end
+  // exclue : la frontière appartient au segment SUIVANT, jamais aux deux à la fois).
+  let prevSegment = null
+  function addSegment(seg) {
+    if (prevSegment) { prevSegment.nextSeg = seg; seg.prevSeg = prevSegment }
+    for (let i = seg.start; i < seg.end; i++) segments[i] = seg
+    if (seg.isWord) wordSegmentsList.push(seg)
+    prevSegment = seg
+  }
   function buildNewBadge(params){
     const b = Div('badge', params.page.badgeLayer)
     b.textContent = params.value
     b.style.left = px(params.left)
     b.style.top  = px(params.top)
+    b.style.setProperty('--badge-rgb', repColor(params.value, params.seuil).join(','))
+    b.dataset.pair = params.pair
     return b
   }
 
@@ -1202,6 +1231,8 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
   // Nettoyage
   PAGE_LEFT.textEl.innerHTML = ''
   PAGE_RIGHT.textEl.innerHTML = ''
+  segments = []
+  wordSegmentsList = []
 
   // On commence sur la page gauche
   let [CURRENT_PAGE, PageBottom] = initCurrentPage(PAGE_LEFT)
@@ -1213,6 +1244,7 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     const token = TOKENS[tokenIdx]
 
     if (token.m === '\n') {
+      addSegment({node: currentParagraph, start: token.o, end: token.o + 1, isWord: false, isBreak: true})
       currentParagraph = buildNewParagraph()
       badgeX = 0; prevTop = null
       continue
@@ -1223,6 +1255,7 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     // suivante si dépassement), un seul marginLeft posé à la fin, remesure DOM après (jamais de
     // patch manuel de rect).
     const span = buildNewTokenSpan({content: token.m, in: currentParagraph})
+    addSegment({node: span, start: token.o, end: token.o + token.w, isWord: true, token})
     let rect, naturalX, wordX, beforeBadge = null
     for (let attempt = 0; attempt < 2; attempt++) {
       rect = spreadRect(span.getBoundingClientRect())
@@ -1241,7 +1274,7 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
       if ( token.bef ) {
         // <= Le token a une proximité avant : badge posé à actualX, mot recentré derrière lui
         beforeBadge = buildNewBadge({
-          value: token.bef, page: CURRENT_PAGE,
+          value: token.bef, page: CURRENT_PAGE, seuil: token.befSeuil, pair: token.befPair,
           left: actualX, top: rect.bottom - CURRENT_PAGE.boundingRect.top + 2
         })
         const bw = beforeBadge.getBoundingClientRect().width
@@ -1265,7 +1298,7 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
       // <= Le token a une proximité après : badge posé au centre du mot (position finale, post-marginLeft)
       const centerX = (rect.left - CURRENT_PAGE.left) + rect.width / 2
       const afterBadge = buildNewBadge({
-        value: token.aft, page: CURRENT_PAGE,
+        value: token.aft, page: CURRENT_PAGE, seuil: token.aftSeuil, pair: token.aftPair,
         left: centerX + GAP / 4, top: rect.bottom - CURRENT_PAGE.boundingRect.top + 2
       })
       const br = afterBadge.getBoundingClientRect()
@@ -1274,7 +1307,11 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     var spanBottom = rect.bottom
 
     // Extra-space après le mot
-    if (token.s) currentParagraph.appendChild(document.createTextNode(token.s))
+    if (token.s) {
+      const spaceNode = document.createTextNode(token.s)
+      currentParagraph.appendChild(spaceNode)
+      addSegment({node: spaceNode, start: token.o + token.w, end: token.o + token.w + token.s.length, isWord: false})
+    }
     
 
     // Page suivante ou fin de remplissage de l'éditeur
