@@ -2,12 +2,13 @@
 
 ## À reprendre en premier
 
+- `load_window()` corrigé ce soir (renvoie `TOKENS`/`firstTokenId` en plus de `total_chars`/
+  `start_offset`) pour matcher ce qu'attend `textRender()`. Testé en live par l'utilisateur : **rien
+  ne s'affiche toujours** (splash toujours bloqué) — pas diagnostiqué, à reprendre en premier.
+  Vérifier d'abord si le rejet de promesse silencieux (pas de handler `unhandledrejection` dans
+  `test.js`) cache une autre erreur en aval (ex. dans `prepareTokens`/`buildDOM`).
 - Reconstruire `segments` (offset caractère → nœud DOM) en structure réellement optimisée — PAS un
   tableau plat à parcours linéaire (rejeté ce soir, forme cible non décidée, à redemander).
-- AVANT ça : `test_pywebview.py::load_window()` renvoie encore `{tokens, total_chars, start_offset}`
-  (anciens noms) alors que `textRender()` (JS) attend `{TOKENS, total_chars, firstTokenId}` — sans
-  ce raccord, aucun test live possible (splash bloqué, promesse rejetée silencieusement, pas de
-  handler `unhandledrejection` dans `test.js`).
 - Puis continuer le remplacement pas à pas de l'ancien pipeline DOM par les fonctions de
   l'utilisateur (voir plus bas).
 

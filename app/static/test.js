@@ -1096,12 +1096,17 @@ function updatePageLine() {
 
 /*- Point d'entrée -*/
 function textRender() {
+  logJS('textRender: appel load_window')
   window.pywebview.api.load_window().then(({ TOKENS, total_chars, firstTokenId }) => {
+    logJS(`textRender: load_window resolu, ${TOKENS.length} tokens, firstTokenId=${firstTokenId}`)
     let indexFirstToken
     [TOKENS, indexFirstToken] = prepareTokens(TOKENS, firstTokenId)
+    logJS(`textRender: prepareTokens fait, indexFirstToken=${indexFirstToken}`)
     buildDOM(TOKENS, indexFirstToken)
+    logJS('textRender: buildDOM fait')
     reveal()
-  })
+    logJS('textRender: reveal fait')
+  }).catch(err => logJSError('JS textRender:', err))
 }
 
 function prepareTokens(TOKENS, firstTokenId){
@@ -1109,7 +1114,7 @@ function prepareTokens(TOKENS, firstTokenId){
   let indexFirstToken;
   const parCanon = new Map(); // canon_id -> { seuil, last }
   TOKENS = TOKENS.map((token, idx) => {
-    if (token.id == firstTokenId) {
+    if (token.i == firstTokenId) {
       indexFirstToken = idx
     }
     token.idx = idx
@@ -1151,6 +1156,13 @@ function prepareTokens(TOKENS, firstTokenId){
  */
 function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
 
+  // DOMRect (getBoundingClientRect) a ses champs en accesseurs sur le prototype, pas en
+  // propriétés propres — {...r} donne {} et toute mutation directe (r.left += x) jette en
+  // strict mode. D'où cette copie manuelle en objet plain mutable.
+  function spreadRect(r) {
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }
+  }
+
   function buildNewParagraph() {
     return Div('para', CURRENT_PAGE.textEl)
   }
@@ -1171,6 +1183,12 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
   }
 
   function initCurrentPage(page){
+    // .page a une hauteur CSS auto (grandit avec son contenu, cf. commentaire sur #pages) — sans
+    // hauteur fixée ici, getBoundingClientRect().bottom mesuré une fois avant tout contenu (juste
+    // en dessous) donnait un plancher minuscule, dépassé dès la 2e ligne. #pages, lui, est borné
+    // par le flex layout du body (flex:1 1 auto + min-height:0) donc sa hauteur est déjà la bonne
+    // cible, indépendante du contenu de .page.
+    page.pageEl.style.height = px(document.getElementById('pages').clientHeight)
     page.boundingRect = page.pageEl.getBoundingClientRect()
     page.left = page.boundingRect.left
     page.isRight = (page.side == 'right')
@@ -1189,7 +1207,7 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
   let badgeX = 0, prevTop = null // décalage porté d'un mot à l'autre sur la même ligne (anti-chevauchement badge)
 
   /* ---          BOUCLE SUR TOUS LES TOKENS         --- */
-  for (tokenIdx, len = TOKENS.length; tokenIdx < len; ++tokenIdx) {
+  for (let len = TOKENS.length; tokenIdx < len; ++tokenIdx) {
     const token = TOKENS[tokenIdx]
 
     if (token.m === '\n') {
@@ -1200,19 +1218,22 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
 
     // Construction du SPAN pour le token
     const span = buildNewTokenSpan({content: token.m, in: currentParagraph})
-    let rect = span.getBoundingClientRect()
+    let rect = spreadRect(span.getBoundingClientRect())
+    // Reset AVANT le calcul de shiftX : sinon le 1er mot d'une ligne wrappée naturellement par
+    // le CSS (donc jamais passée par le Br() forcé ci-dessous) hérite du badgeX de la ligne
+    // précédente et se retrouve décalé vers la droite.
+    if (prevTop !== null && Math.round(rect.top) !== Math.round(prevTop)){
+      badgeX = 0
+    }
     let naturalX = rect.left - CURRENT_PAGE.left
     let shiftX = Math.max(0, badgeX - naturalX)
     if (naturalX + shiftX + rect.width > CURRENT_PAGE.rightLimit) {
       // Badge dépasse => passage à la ligne forcé
       currentParagraph.insertBefore(Br(), span)
       badgeX = 0; prevTop = null
-      rect = span.getBoundingClientRect()
+      rect = spreadRect(span.getBoundingClientRect())
       naturalX = rect.left - CURRENT_PAGE.left
       shiftX = 0
-    }
-    if (prevTop !== null && Math.round(rect.top) !== Math.round(prevTop)){ 
-      badgeX = 0
     }
     prevTop = rect.top
     // On ajuste la position du span du mots pour qu'il laisse la place à son
@@ -1264,6 +1285,10 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     }
 
   }
+  const words = document.querySelectorAll('.word')
+  const paras = document.querySelectorAll('.para')
+  const tops = Array.from(words).map(w => w.getBoundingClientRect().top)
+  logJS(`buildDOM: ${words.length} mots, ${paras.length} paragraphes, top premier=${tops[0]}, top dernier=${tops[tops.length - 1]}, tops distincts=${new Set(tops).size}`)
   return true // FIN TEXTE COURT
 } // /buildDOM
 
@@ -1285,7 +1310,7 @@ function Span(css, container, content){
 function Br(params){
   const br = document.createElement('BR')
   params?.in?.appendChild(br)
-  return bt
+  return br
 }
 function px(nombre) { return String(nombre) + 'px' }
 
@@ -1300,6 +1325,24 @@ function px(nombre) { return String(nombre) + 'px' }
 
 
 
+
+function logJS(msg) {
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.debug_log(`JS: ${msg}`)
+  } else {
+    console.log(msg)
+  }
+}
+function logJSError(prefix, err) {
+  const msg = `${prefix} ${err && err.stack ? err.stack : err}`
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.debug_log(msg)
+  } else {
+    console.error(msg)
+  }
+}
+window.addEventListener('error', (e) => logJSError('JS window.onerror:', e.error || e.message))
+window.addEventListener('unhandledrejection', (e) => logJSError('JS unhandledrejection:', e.reason))
 
 if (window.pywebview && window.pywebview.api) {
   textRender();
