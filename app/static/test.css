@@ -91,6 +91,10 @@ body {
 }
 #pages.has-exergue .badge:not(.active) { opacity: 0; }
 
+/* Pendant l'édition (cf. test.js scheduleBadgeHide) : tous les badges masqués, réaffichés après
+   un temps sans frappe (laps_before_recal_prox) — "en sachant qu'ils seront alors recalculés". */
+#pages.editing .badge { opacity: 0; }
+
 /* Partenaire absent du DOM (hors fenêtre visible) — badge normal, jamais associable à une
    exergue. Bordure discontinue pour le distinguer d'un badge dont le partenaire existe mais n'a
    juste pas encore été cliqué. */

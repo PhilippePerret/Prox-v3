@@ -632,12 +632,27 @@ function lightDeleteChar(atIdx) {
 
 function noSelection() { return anchorIdx === null || anchorIdx === cursorIdx; }
 
+// Masque tous les badges dès la première frappe, les réaffiche après un temps sans frappe
+// (laps_before_recal_prox) — juste un toggle visuel (classe #pages.editing, cf. test.css),
+// indépendant de tout recalcul : les valeurs/positions sous-jacentes restent celles déjà à jour
+// via updateProximitiesAfterEdit, seul l'AFFICHAGE est temporairement coupé.
+let badgeHideTimer = null;
+function scheduleBadgeHide() {
+  document.getElementById('pages').classList.add('editing');
+  clearTimeout(badgeHideTimer);
+  badgeHideTimer = setTimeout(() => {
+    badgeHideTimer = null;
+    document.getElementById('pages').classList.remove('editing');
+  }, (APP_SETTINGS.laps_before_recal_prox ?? 3) * 1000);
+}
+
 // Cas structurels (retour ligne, sélection, fusion de mots en bord de token) : pas encore
 // branchés (cf. commentaire plus haut) — ne font rien pour l'instant, à reprendre pas à pas.
 
 function insertText(str) {
   if (noSelection() && str !== '\n' && lightInsertChar(str)) {
     setCursor(cursorIdx + str.length, false);
+    scheduleBadgeHide();
   }
 }
 
@@ -647,12 +662,14 @@ function insertParagraphBreak() {
 function backspace() {
   if (noSelection() && cursorIdx > 0 && lightDeleteChar(cursorIdx - 1)) {
     setCursor(cursorIdx - 1, false);
+    scheduleBadgeHide();
   }
 }
 
 function deleteForward() {
   if (noSelection() && lightDeleteChar(cursorIdx)) {
     setCursor(cursorIdx, false);
+    scheduleBadgeHide();
   }
 }
 
