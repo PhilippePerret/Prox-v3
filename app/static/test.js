@@ -733,7 +733,7 @@ function setCursor(idx, keepAnchor, silentPairs) {
   cursorIdx = clampIdx(idx);
   if (!keepAnchor) anchorIdx = null;
   render(`position ${cursorIdx} — ${describePosition(cursorIdx)}` + (anchorIdx !== null ? ` — sélection [${Math.min(anchorIdx, cursorIdx)}, ${Math.max(anchorIdx, cursorIdx)})` : ''));
-  if (!silentPairs) updateCursorPairs();
+  if (!silentPairs && APP_SETTINGS.exergue_prox_when_cursor_in_mot) updateCursorPairs();
   logCursor();
 }
 
@@ -1233,10 +1233,9 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     // systématiquement la place d'un badge (28px, cf. CSS .badge) même si CE mot n'en a pas —
     // un badge peut apparaître sur n'importe quel mot de la ligne, l'utilisateur ne peut pas
     // savoir si une ligne coupée court manque un badge invisible.
-    page.nearBottom = page.boundingRect.top + (PageBottom - page.boundingRect.top) * 4 / 5
     page.bottom = currentBottom(page)
-
-    return [page, PageBottom]
+    page.nearBottom = page.boundingRect.top + (page.bottom - page.boundingRect.top) * 4 / 5
+    return page
   }
 
   // Nettoyage

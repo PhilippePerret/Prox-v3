@@ -26,8 +26,9 @@ def _log_titlebar(msg: str) -> None:
         f.write(f"[PY {time.time():.3f}] TITLEBAR {msg}\n")
 
 
-def _set_titlebar(ns_win, visible: bool):
+def _set_titlebar(window, visible: bool):
     """Affiche ou cache la barre de titre via PyObjC (main thread requis)."""
+    ns_win = window.native
     try:
         from Foundation import NSOperationQueue
         mask = ns_win.styleMask()
@@ -38,6 +39,16 @@ def _set_titlebar(ns_win, visible: bool):
             _log_titlebar("bloc: avant setStyleMask_")
             try:
                 ns_win.setStyleMask_(new_mask)
+                ns_win.makeKeyAndOrderFront_(None)
+                # Fenêtre "key" (ligne au-dessus) != WKWebView "first responder" : ce sont deux
+                # statuts macOS différents, setStyleMask_ fait perdre le second sans toucher au
+                # premier. Sans ça, la fenêtre est active mais le clavier ne va nulle part tant
+                # qu'on n'a pas recliqué dedans. Même appel que pywebview lui-même à son propre
+                # démarrage (webview/platforms/cocoa.py:387, i.window.makeFirstResponder_(webview)).
+                from webview.platforms.cocoa import BrowserView
+                instance = BrowserView.instances.get(window.uid)
+                if instance is not None:
+                    ns_win.makeFirstResponder_(instance.webview)
             except Exception as e:
                 _log_titlebar(f"bloc: EXCEPTION Python {e!r}")
                 raise
@@ -45,6 +56,8 @@ def _set_titlebar(ns_win, visible: bool):
 
         NSOperationQueue.mainQueue().addOperationWithBlock_(_apply)
         _log_titlebar("bloc programme (addOperationWithBlock_ est revenu)")
+        # l'évènement window 'focus' (cf. test.js) — appeler evaluate_js depuis ce bloc PyObjC
+        # faisait planter l'app silencieusement (aucune trace Python/macOS).
     except Exception as e:
         _log_titlebar(f"EXCEPTION Python (programmation) {e!r}")
 
@@ -142,7 +155,7 @@ class TestAPI:
     def _load_model(self):
         self._nlp = load_best_model()
         if self._window is not None:
-            _set_titlebar(self._window.native, True)
+            _set_titlebar(self._window, True)
 
     def is_model_ready(self) -> bool:
         return self._nlp is not None
@@ -206,7 +219,7 @@ def main():
     api._set_window(window)
 
     def on_loaded():
-        _set_titlebar(window.native, False)
+        _set_titlebar(window, False)
         threading.Thread(target=api._load_model, daemon=True).start()
 
     window.events.loaded += on_loaded
