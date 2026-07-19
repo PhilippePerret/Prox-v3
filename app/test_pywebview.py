@@ -53,7 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import webview
 from app.engine import ProxEngine
-from app import config, db
+from app import config, db, settings
 from app.spacy_model import load_best_model
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -125,6 +125,12 @@ class TestAPI:
         # token réellement chargé (recalculé plus haut si repli sur first_token_id).
         return {'TOKENS': tokens, 'total_chars': total_chars, 'start_offset': start_offset,
                 'firstTokenId': start}
+
+    def get_settings(self) -> dict:
+        return settings.load()
+
+    def set_setting(self, key: str, value) -> dict:
+        return settings.set_value(key, value)
 
     def debug_log(self, msg: str) -> None:
         # msg vient déjà préfixé "[Nms] ..." côté JS (performance.now()) — préfixe ici avec

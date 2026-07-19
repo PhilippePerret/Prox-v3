@@ -19,6 +19,11 @@ const SEUIL_DEFAUT = 1500;
 // Clé = le canon (lemme, texte) — token.c est le texte du lemme (jointure côté
 // db.py::tokens_from), jamais l'id numérique canon_id, fragile car dépendant de l'ordre
 // d'insertion dans la base.
+// Réglages utilisateur (~/Library/Application Support/Proximity/settings.json côté Python,
+// cf. app/settings.py) — chargés une fois avant textRender(), jamais avant (get_settings() est
+// asynchrone, pas de valeur par défaut locale à maintenir en double ici).
+let APP_SETTINGS = {};
+
 const SEUIL_PER_CANON = {
   mais: 300, ou: 300, et: 300, donc: 300, or: 300, ni: 300, car: 300,
 };
@@ -1413,8 +1418,15 @@ function logJSError(prefix, err) {
 window.addEventListener('error', (e) => logJSError('JS window.onerror:', e.error || e.message))
 window.addEventListener('unhandledrejection', (e) => logJSError('JS unhandledrejection:', e.reason))
 
+function loadSettingsThenRender() {
+  window.pywebview.api.get_settings().then(s => {
+    APP_SETTINGS = s;
+    textRender();
+  }).catch(err => logJSError('JS get_settings:', err))
+}
+
 if (window.pywebview && window.pywebview.api) {
-  textRender();
+  loadSettingsThenRender();
 } else {
-  window.addEventListener('pywebviewready', textRender);
+  window.addEventListener('pywebviewready', loadSettingsThenRender);
 }
