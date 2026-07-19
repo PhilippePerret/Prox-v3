@@ -8,6 +8,7 @@ SETTINGS_FILE = SETTINGS_DIR / "settings.yaml"
 
 DEFAULTS = {
     "exergue_prox_when_cursor_in_mot": False,
+    "laps_before_recal_prox": 3,  # secondes avant recalcul des proximités/badges après une frappe
 }
 
 
