@@ -27,7 +27,7 @@ const SEUIL_PER_CANON = {
 // utilisateur 2026-07-16 : un dégradé produisait trop de cas illisibles). Valeurs de départ,
 // à retoucher directement dans l'inspecteur WebKit (cf. discussion) pour trouver l'équilibre.
 const COULEUR_PROCHE   = [211, 47, 47];  // rouge   — ratio proche de 0 (distance proche de 0)
-const COULEUR_MOYEN    = [245, 124, 0];  // orange  — ratio autour de 1/2
+const COULEUR_MOYEN    = [255, 179, 0];  // ambre   — ratio autour de 1/2 (2026-07-19 : plus loin du rouge)
 const COULEUR_LOINTAIN = [56, 142, 60];  // vert    — ratio proche de 1 (distance proche du seuil)
 function repColor(distance, seuil) {
   const ratio = Math.max(0, Math.min(1, distance / seuil));
@@ -1224,7 +1224,13 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     page.left = page.boundingRect.left
     page.isRight = (page.side == 'right')
     page.rightLimit = page.pageEl.clientWidth - parseFloat(getComputedStyle(page.pageEl).paddingRight)
-    let PageBottom = currentBottom(page)
+    // Seuil dernier 1/5 de page, calculé une fois par page (pas par mot) : au-delà, on réserve
+    // systématiquement la place d'un badge (28px, cf. CSS .badge) même si CE mot n'en a pas —
+    // un badge peut apparaître sur n'importe quel mot de la ligne, l'utilisateur ne peut pas
+    // savoir si une ligne coupée court manque un badge invisible.
+    page.nearBottom = page.boundingRect.top + (PageBottom - page.boundingRect.top) * 4 / 5
+    page.bottom = currentBottom(page)
+
     return [page, PageBottom]
   }
 
@@ -1235,11 +1241,17 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
   wordSegmentsList = []
 
   // On commence sur la page gauche
-  let [CURRENT_PAGE, PageBottom] = initCurrentPage(PAGE_LEFT)
+  let CURRENT_PAGE = initCurrentPage(PAGE_LEFT)
   let currentParagraph = buildNewParagraph()
   let badgeX = 0, prevTop = null // décalage porté d'un mot à l'autre sur la même ligne (anti-chevauchement badge)
+  let hauteur_de_badge = null // diff entre bottom de span mot et bottom du badge
 
-  /* ---          BOUCLE SUR TOUS LES TOKENS         --- */
+  /* -----------------------------------------------------*/
+  /*                                                      */
+  /* ---          BOUCLE SUR TOUS LES TOKENS          --- */
+  /*                                                      */
+  /* -----------------------------------------------------*/
+
   for (let len = TOKENS.length; tokenIdx < len; ++tokenIdx) {
     const token = TOKENS[tokenIdx]
 
@@ -1256,7 +1268,7 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     // patch manuel de rect).
     const span = buildNewTokenSpan({content: token.m, in: currentParagraph})
     addSegment({node: span, start: token.o, end: token.o + token.w, isWord: true, token})
-    let rect, naturalX, wordX, beforeBadge = null
+    let rect, naturalX, wordX, beforeBadge = null, afterBadge = null
     for (let attempt = 0; attempt < 2; attempt++) {
       rect = spreadRect(span.getBoundingClientRect())
       // Reset sur wrap (naturel CSS ou forcé) : badgeX ne vaut que "sur la même ligne".
@@ -1297,7 +1309,7 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     if ( token.aft ) {
       // <= Le token a une proximité après : badge posé au centre du mot (position finale, post-marginLeft)
       const centerX = (rect.left - CURRENT_PAGE.left) + rect.width / 2
-      const afterBadge = buildNewBadge({
+      afterBadge = buildNewBadge({
         value: token.aft, page: CURRENT_PAGE, seuil: token.aftSeuil, pair: token.aftPair,
         left: centerX + GAP / 4, top: rect.bottom - CURRENT_PAGE.boundingRect.top + 2
       })
@@ -1314,14 +1326,30 @@ function buildDOM(TOKENS /* préparés */, tokenIdx /* first token index */){
     }
     
 
-    // Page suivante ou fin de remplissage de l'éditeur
-    if ( spanBottom > PageBottom ) {
-      if ( CURRENT_PAGE.isRight) {
-        return true // FIN TEXTE LONG
-      } else {
-       [CURRENT_PAGE, PageBottom] = initCurrentPage(PAGE_RIGHT)
-        currentParagraph = buildNewParagraph()
-        badgeX = 0; prevTop = null
+    // On arrive en bas de page, on peut checker la proximité
+    // de la marge (avant, calcul inutile)
+    if ( spanBottom > CURRENT_PAGE.nearBottom ) {
+      if ( null === hauteur_de_badge /* ~ 28 */) {
+        // Il faut calculer la hauteur de badge en prenant le premier
+        // en exemple (attention : valeur par défaut, car il peut n'y 
+        // avoir aucun badge)
+        // Autre manière (mais j'aime moins bien car il faut faire le
+        // test sur chaque badge : prendre le premier badge à la cons-
+        // truction ci-dessus)
+        const unBadge = beforeBadge || afterBadge
+        hauteur_de_badge = unBadge
+          ? Math.round(unBadge.getBoundingClientRect().bottom - rect.bottom)
+          : 28
+      }
+      if (spanBottom > CURRENT_PAGE.bottom - hauteur_de_badge) {
+        if ( CURRENT_PAGE.isRight) {
+          return true // FIN TEXTE LONG
+        } else {
+          // Passer à la  page droite
+          CURRENT_PAGE = initCurrentPage(PAGE_RIGHT)
+          currentParagraph = buildNewParagraph()
+          badgeX = 0; prevTop = null
+        }
       }
     }
 
